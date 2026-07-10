@@ -76,7 +76,7 @@ def call_flight_agent(request: TaskRequest) -> TaskResponse:
                 duration = str(f.get("total_duration", "Unknown")) + "m" if isinstance(f.get("total_duration"), int) else f.get("duration", "Unknown")
                 
                 stops_count = len(f.get("flights", [])) - 1
-                stops_str = "Non-stop" if stops_count == 0 else f"{stops_count} Stop{'s' if stops_count > 1 else ''}"
+                stops_str = "Non-stop" if stops_count == 0 else f"Connecting Flight ({stops_count} Stop{'s' if stops_count > 1 else ''})"
                 base_price = f.get("price", 0)
                 
                 origin_code = dep.get('id', params.get('origin', ''))

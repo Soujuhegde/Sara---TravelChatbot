@@ -1,19 +1,57 @@
 import React from 'react';
+import { Download } from 'lucide-react';
+import html2canvas from 'html2canvas';
 
 const FlightTicket = ({ ticket }) => {
   if (!ticket) return null;
 
+  const ticketRef = React.useRef(null);
   const primaryPassenger = ticket.passengers && ticket.passengers.length > 0 ? ticket.passengers[0].name?.toUpperCase() || 'PASSENGER' : 'PASSENGER';
 
   // Format date if needed, or use as is
   const displayDate = ticket.date.toUpperCase();
 
+  const handleDownload = async () => {
+    if (!ticketRef.current) return;
+    try {
+      // Temporarily hide the download button so it doesn't show up in the captured image
+      const btn = ticketRef.current.querySelector('.download-btn');
+      if (btn) btn.style.display = 'none';
+
+      const canvas = await html2canvas(ticketRef.current, {
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: '#4a81e3',
+        scale: 2, // Capture in higher resolution
+      });
+
+      if (btn) btn.style.display = 'flex';
+
+      const dataUrl = canvas.toDataURL('image/png');
+      const link = document.createElement('a');
+      link.download = `boarding_pass_${ticket.pnr || 'ticket'}.png`;
+      link.href = dataUrl;
+      link.click();
+    } catch (err) {
+      console.error('Error generating image:', err);
+    }
+  };
+
   return (
-    <div className="w-full max-w-4xl mx-auto my-6 flex flex-col md:flex-row font-sans rounded-2xl overflow-hidden shadow-2xl bg-[#4a81e3] p-2">
+    <div ref={ticketRef} className="w-full max-w-4xl mx-auto my-6 flex flex-col md:flex-row font-sans rounded-2xl overflow-hidden shadow-2xl bg-[#4a81e3] p-2 relative">
       
+      {/* Download Icon Button */}
+      <button 
+        onClick={handleDownload} 
+        className="download-btn absolute top-5 right-5 bg-white/10 hover:bg-white/20 text-white p-2.5 rounded-full transition-colors z-20 flex items-center justify-center shadow-md border border-white/10"
+        title="Download Boarding Pass"
+      >
+        <Download className="w-5 h-5 text-white" />
+      </button>
+
       {/* Left Section (White Card inside Blue) */}
       <div className="flex-1 bg-white rounded-xl p-6 md:p-8 relative flex flex-col">
-        
+
         {/* Top Header */}
         <div className="flex justify-between items-start mb-6">
           <div className="flex items-center gap-3">
@@ -48,7 +86,7 @@ const FlightTicket = ({ ticket }) => {
             <p className="text-5xl font-bold text-[#204996] mb-1">{ticket.origin}</p>
             <p className="text-sm font-semibold text-gray-500 uppercase">{ticket.origin_full || 'Origin'}</p>
           </div>
-          
+
           <div className="flex-1 px-6 flex items-center justify-center relative">
             <div className="w-full h-[2px] bg-gray-300 border-dashed border-t-2 border-gray-300 absolute"></div>
             <div className="z-10 text-[#4a81e3] transform rotate-90 bg-white px-2">
@@ -57,7 +95,7 @@ const FlightTicket = ({ ticket }) => {
               </svg>
             </div>
           </div>
-          
+
           <div className="text-right">
             <p className="text-sm text-gray-400 uppercase tracking-widest font-semibold mb-1">To</p>
             <p className="text-5xl font-bold text-[#204996] mb-1">{ticket.destination}</p>
@@ -67,12 +105,12 @@ const FlightTicket = ({ ticket }) => {
 
         {/* Bottom Details Box */}
         <div className="bg-[#f2f6fc] rounded-xl p-5 flex justify-between items-center mt-auto">
-          <div className="grid grid-cols-3 gap-y-4 gap-x-8 w-full">
-            <div>
+          <div className="grid grid-cols-4 gap-y-4 gap-x-8 w-full">
+            <div className="col-span-2">
               <p className="text-[10px] text-gray-400 uppercase tracking-widest font-bold mb-1">Passenger</p>
-              <p className="font-bold text-gray-800 text-sm truncate">{primaryPassenger}</p>
+              <p className="font-bold text-gray-800 text-sm whitespace-nowrap">{primaryPassenger}</p>
             </div>
-            <div>
+            <div className="col-span-2">
               <p className="text-[10px] text-gray-400 uppercase tracking-widest font-bold mb-1">Date</p>
               <p className="font-bold text-gray-800 text-sm">{displayDate}</p>
             </div>
@@ -93,7 +131,7 @@ const FlightTicket = ({ ticket }) => {
               <p className="font-bold text-gray-800 text-sm">{ticket.seat}</p>
             </div>
           </div>
-          
+
           <div className="ml-4 flex-shrink-0">
             {/* Mock QR Code representation */}
             <div className="w-20 h-20 bg-white p-1 rounded grid grid-cols-4 grid-rows-4 gap-0.5">
@@ -113,7 +151,7 @@ const FlightTicket = ({ ticket }) => {
       {/* Right Section (Blue area) */}
       <div className="w-full md:w-80 p-6 md:p-8 text-white flex flex-col relative rounded-r-2xl border-t md:border-t-0 md:border-l-0 border-white/20 border-dashed mt-4 md:mt-0">
         <h3 className="text-xl font-bold tracking-widest uppercase mb-6 text-center">Boarding Pass</h3>
-        
+
         {/* Small White Route Box */}
         <div className="bg-white text-[#204996] rounded-xl p-3 flex justify-between items-center mb-8 w-full shadow-inner">
           <div className="text-center">
@@ -133,7 +171,7 @@ const FlightTicket = ({ ticket }) => {
         <div className="grid grid-cols-2 gap-y-5 gap-x-2 text-sm w-full">
           <div className="col-span-2">
             <p className="text-[9px] text-white/60 uppercase tracking-widest mb-0.5">Passenger Name</p>
-            <p className="font-semibold truncate">{primaryPassenger}</p>
+            <p className="font-semibold">{primaryPassenger}</p>
           </div>
           <div className="col-span-2 flex justify-between">
             <div>
@@ -145,7 +183,7 @@ const FlightTicket = ({ ticket }) => {
               <p className="font-semibold">{ticket.flight_numbers}</p>
             </div>
           </div>
-          
+
           <div>
             <p className="text-[9px] text-white/60 uppercase tracking-widest mb-0.5">Date</p>
             <p className="font-semibold">{displayDate}</p>

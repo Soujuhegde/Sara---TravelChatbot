@@ -3,12 +3,33 @@ from app.schemas.chat import ChatRequest, ChatResponse
 from app.orchestrator.graph import graph
 from langchain_core.messages import HumanMessage
 import uuid
+import pickle
+import os
 
 router = APIRouter()
 
-# In-memory session state storage for the demo (since MemorySaver needs async setup or sqlite)
-# For production, use LangGraph's checkpointer
+SESSIONS_FILE = "sessions.pkl"
 sessions = {}
+
+def load_sessions():
+    global sessions
+    if os.path.exists(SESSIONS_FILE):
+        try:
+            with open(SESSIONS_FILE, "rb") as f:
+                sessions = pickle.load(f)
+            print(f"Loaded {len(sessions)} active sessions from {SESSIONS_FILE}")
+        except Exception as e:
+            print(f"Error loading sessions: {e}")
+
+def save_sessions():
+    try:
+        with open(SESSIONS_FILE, "wb") as f:
+            pickle.dump(sessions, f)
+    except Exception as e:
+        print(f"Error saving sessions: {e}")
+
+# Load sessions on startup / reload
+load_sessions()
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat_endpoint(request: ChatRequest):
@@ -39,11 +60,13 @@ async def chat_endpoint(request: ChatRequest):
     from langchain_core.messages import AIMessage
     new_state["messages"].append(AIMessage(content=final_resp))
     
-    # Update session
+    # Update session and persist to disk
     sessions[session_id] = new_state
+    save_sessions()
     
     options_to_show = new_state.get("options_to_show") or []
-    ticket = new_state.get("ticket")
+    current_step = new_state.get("current_step")
+    ticket = new_state.get("ticket") if current_step in ["booking_confirmed", "hotel_booking_confirmed"] else None
     clarification_needed = new_state.get("pending_clarification")
     quick_replies = new_state.get("quick_replies", [])
 

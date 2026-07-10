@@ -1,6 +1,29 @@
 import React from 'react';
 import { Plane, Hotel, CheckCircle, ChevronRight } from 'lucide-react';
 import FlightTicket from './FlightTicket';
+import HotelCard from './HotelCard';
+import HotelTicket from './HotelTicket';
+
+const formatDuration = (dur) => {
+  if (!dur) return "";
+  const durStr = String(dur).trim();
+  if (durStr.includes('h') || durStr.includes('d')) {
+    return durStr;
+  }
+  const minutes = parseInt(durStr.replace(/[^\d]/g, ""), 10);
+  if (isNaN(minutes)) {
+    return durStr;
+  }
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (h > 0 && m > 0) {
+    return `${h}h ${m}m`;
+  } else if (h > 0) {
+    return `${h}h`;
+  } else {
+    return `${m}m`;
+  }
+};
 
 const FlightCard = ({ option }) => {
   return (
@@ -20,7 +43,7 @@ const FlightCard = ({ option }) => {
         <div className="flex-1 flex flex-col items-center mx-4">
           <div className="flex items-center w-full text-slate-400 font-medium text-xs">
             <div className="flex-1 border-t border-dashed border-slate-400"></div>
-            <span className="bg-[#f0f4f8] px-2 py-1 rounded-md mx-2 text-slate-700">{option.duration}</span>
+            <span className="bg-[#f0f4f8] px-2 py-1 rounded-md mx-2 text-slate-700">{formatDuration(option.duration)}</span>
             <div className="flex-1 border-t border-dashed border-slate-400"></div>
           </div>
         </div>
@@ -87,7 +110,7 @@ const MessageBubble = ({ message, onQuickReply, onOptionSelect }) => {
       
       <div className={`w-full max-w-[95%] lg:max-w-[85%] ${isUser ? 'order-2 flex flex-col items-end' : 'order-1 flex flex-col items-start'}`}>
         <div 
-          className={`p-5 shadow-sm text-base w-fit ${
+          className={`p-5 shadow-sm text-[17px] md:text-[18px] w-fit ${
             isUser 
               ? 'bg-brand text-white rounded-3xl rounded-tr-sm' 
               : 'bg-white text-slate-700 rounded-3xl rounded-tl-sm border border-slate-100'
@@ -95,21 +118,6 @@ const MessageBubble = ({ message, onQuickReply, onOptionSelect }) => {
         >
           <p className="whitespace-pre-wrap leading-relaxed">{renderTextWithLinks(message.text)}</p>
         </div>
-        
-        {/* Quick Replies */}
-        {!isUser && message.quick_replies && message.quick_replies.length > 0 && (
-          <div className="flex flex-wrap gap-2 mt-4 ml-1">
-            {message.quick_replies.map((reply, i) => (
-              <button 
-                key={i} 
-                onClick={() => onQuickReply && onQuickReply(reply)}
-                className="px-5 py-2.5 bg-white border border-slate-200 text-slate-500 hover:text-slate-700 hover:border-slate-300 rounded-full text-sm font-medium transition-colors shadow-sm"
-              >
-                {reply}
-              </button>
-            ))}
-          </div>
-        )}
         
         {/* Flight Cards and Action Buttons */}
         {message.options && message.options.length > 0 && (
@@ -129,15 +137,40 @@ const MessageBubble = ({ message, onQuickReply, onOptionSelect }) => {
                   </div>
                 );
               }
+              if (opt.type === 'hotel') {
+                return <HotelCard key={i} hotel={{...opt, onOptionSelect}} />;
+              }
               return <FlightCard key={i} option={{...opt, onOptionSelect}} />;
             })}
           </div>
         )}
 
         {/* Flight Ticket */}
-        {message.ticket && (
+        {message.ticket && !message.ticket.hotel_name && (
           <div className="mt-4 w-full">
             <FlightTicket ticket={message.ticket} />
+          </div>
+        )}
+
+        {/* Hotel Ticket */}
+        {message.ticket && message.ticket.hotel_name && (
+          <div className="mt-4 w-full">
+            <HotelTicket ticket={message.ticket} />
+          </div>
+        )}
+
+        {/* Quick Replies */}
+        {!isUser && message.quick_replies && message.quick_replies.length > 0 && (
+          <div className="flex flex-wrap gap-2 mt-4 ml-1">
+            {message.quick_replies.map((reply, i) => (
+              <button 
+                key={i} 
+                onClick={() => onQuickReply && onQuickReply(reply)}
+                className="px-5 py-2.5 bg-white border border-slate-200 text-slate-500 hover:text-slate-700 hover:border-slate-300 rounded-full text-sm font-medium transition-colors shadow-sm"
+              >
+                {reply}
+              </button>
+            ))}
           </div>
         )}
       </div>

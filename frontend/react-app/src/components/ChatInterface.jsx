@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import axios from 'axios';
-import { Send, MapPin } from 'lucide-react';
+import { Send, MapPin, Menu } from 'lucide-react';
 import MessageBubble from './MessageBubble';
 import TypingIndicator from './TypingIndicator';
 
@@ -17,6 +17,8 @@ const ChatInterface = () => {
   ]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [hasStarted, setHasStarted] = useState(false);
   const [sessionId, setSessionId] = useState(generateId());
   const messagesEndRef = useRef(null);
 
@@ -30,6 +32,7 @@ const ChatInterface = () => {
 
   const sendMessage = async (text) => {
     if (!text.trim()) return;
+    setHasStarted(true);
 
     const userMessage = {
       id: Date.now(),
@@ -70,6 +73,52 @@ const ChatInterface = () => {
     }
   };
 
+  const handleMenuOption = async (option) => {
+    setIsMenuOpen(false);
+    setHasStarted(true);
+    let activeSessionId = sessionId;
+    if (option === "Flight Booking" || option === "Itinerary Plan") {
+      activeSessionId = generateId();
+      setSessionId(activeSessionId);
+    }
+    
+    setMessages([]);
+    setIsTyping(true);
+    
+    let triggerMsg = "";
+    if (option === "Flight Booking") triggerMsg = "Book a flight";
+    else if (option === "Hotel Booking") triggerMsg = "Book a hotel";
+    else triggerMsg = "Plan an itinerary";
+    
+    try {
+      const response = await axios.post('http://localhost:8000/api/chat', {
+        message: triggerMsg,
+        session_id: activeSessionId
+      });
+
+      const botMessage = {
+        id: Date.now(),
+        sender: 'bot',
+        text: response.data.message,
+        options: response.data.options,
+        quick_replies: response.data.quick_replies,
+        ticket: response.data.ticket
+      };
+
+      setMessages([botMessage]);
+    } catch (error) {
+      console.error("Error communicating with chat API:", error);
+      const errorMessage = {
+        id: Date.now(),
+        sender: 'bot',
+        text: "I'm sorry, I'm having trouble connecting to my servers right now."
+      };
+      setMessages([errorMessage]);
+    } finally {
+      setIsTyping(false);
+    }
+  };
+
   const handleSend = (e) => {
     e.preventDefault();
     sendMessage(input);
@@ -81,7 +130,7 @@ const ChatInterface = () => {
     "I want to go to Tokyo in June"
   ];
 
-  const isInitialState = messages.length === 1;
+  const isInitialState = !hasStarted && messages.length === 1;
 
   const getGreeting = () => {
     const hour = new Date().getHours();
@@ -96,13 +145,23 @@ const ChatInterface = () => {
         <div className="w-full max-w-3xl flex flex-col items-center animate-fade-in-up">
           <h2 className="text-4xl font-serif text-gray-800 mb-8">{getGreeting()}, how can I help you?</h2>
           
-          <form onSubmit={handleSend} className="relative flex items-center w-full mb-8 shadow-lg rounded-full">
+          {isMenuOpen && (
+            <div className="fixed inset-0 z-40" onClick={() => setIsMenuOpen(false)} />
+          )}
+          <form onSubmit={handleSend} className="relative flex items-center w-full mb-8 shadow-lg rounded-full z-50">
+            <button
+              type="button"
+              onClick={() => setIsMenuOpen(!isMenuOpen)}
+              className="absolute left-4 p-2 text-slate-400 hover:text-slate-600 focus:outline-none z-20"
+            >
+              <Menu className="w-6 h-6 text-brand" />
+            </button>
             <input
               type="text"
               value={input}
               onChange={(e) => setInput(e.target.value)}
               placeholder="Where would you like to travel today?"
-              className="w-full pl-8 pr-16 py-5 rounded-full border border-gray-200 focus:border-brand focus:ring-2 focus:ring-brand/20 outline-none text-gray-700 text-lg transition-all"
+              className="w-full pl-14 pr-16 py-5 rounded-full border border-gray-200 focus:border-brand focus:ring-2 focus:ring-brand/20 outline-none text-gray-700 text-lg transition-all"
               disabled={isTyping}
             />
             <button
@@ -112,6 +171,33 @@ const ChatInterface = () => {
             >
               <Send className="w-6 h-6" />
             </button>
+
+            {isMenuOpen && (
+              <div className="absolute bottom-20 left-4 bg-white border border-slate-200 rounded-2xl shadow-xl p-2 w-56 z-50 flex flex-col gap-1 text-left">
+                <div className="text-[10px] text-slate-400 font-bold px-3 py-1.5 uppercase tracking-wider">Booking Options</div>
+                <button
+                  type="button"
+                  onClick={() => handleMenuOption("Flight Booking")}
+                  className="w-full text-left px-3 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 hover:text-brand rounded-xl transition-colors flex items-center gap-2"
+                >
+                  ✈️ Flight Booking
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleMenuOption("Hotel Booking")}
+                  className="w-full text-left px-3 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 hover:text-brand rounded-xl transition-colors flex items-center gap-2"
+                >
+                  🏨 Hotel Booking
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleMenuOption("Itinerary Plan")}
+                  className="w-full text-left px-3 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 hover:text-brand rounded-xl transition-colors flex items-center gap-2"
+                >
+                  🗺️ Itinerary Plan
+                </button>
+              </div>
+            )}
           </form>
 
           <div className="flex flex-wrap justify-center gap-3 w-full">
@@ -140,7 +226,11 @@ const ChatInterface = () => {
             message={msg} 
             onQuickReply={sendMessage} 
             onOptionSelect={(option, flightClass, price) => {
-              sendMessage(`I would like to select ${flightClass} class on ${option.airline_name} ${option.flight_numbers} for ${price}`);
+              if (option.type === 'hotel') {
+                sendMessage(`I would like to select hotel ${option.name} for ${price}`);
+              } else {
+                sendMessage(`I would like to select ${flightClass} class on ${option.airline_name} ${option.flight_numbers} for ${price}`);
+              }
             }}
           />
         ))}
@@ -153,13 +243,23 @@ const ChatInterface = () => {
       </div>
 
       <div className="p-4 bg-white border-t border-slate-200">
-        <form onSubmit={handleSend} className="relative flex items-center">
+        {isMenuOpen && (
+          <div className="fixed inset-0 z-40" onClick={() => setIsMenuOpen(false)} />
+        )}
+        <form onSubmit={handleSend} className="relative flex items-center z-50">
+          <button
+            type="button"
+            onClick={() => setIsMenuOpen(!isMenuOpen)}
+            className="absolute left-3 p-1.5 text-slate-400 hover:text-slate-600 focus:outline-none z-20"
+          >
+            <Menu className="w-5 h-5 text-brand" />
+          </button>
           <input
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="Type your travel request here..."
-            className="w-full pl-6 pr-14 py-4 rounded-full border border-slate-200 focus:border-brand focus:ring-2 focus:ring-brand/20 outline-none text-slate-700 shadow-sm transition-all"
+            className="w-full pl-12 pr-14 py-4 rounded-full border border-slate-200 focus:border-brand focus:ring-2 focus:ring-brand/20 outline-none text-slate-700 shadow-sm transition-all"
             disabled={isTyping}
           />
           <button
@@ -169,6 +269,33 @@ const ChatInterface = () => {
           >
             <Send className="w-5 h-5" />
           </button>
+
+          {isMenuOpen && (
+            <div className="absolute bottom-16 left-2 bg-white border border-slate-200 rounded-2xl shadow-xl p-2 w-56 z-50 flex flex-col gap-1 text-left">
+              <div className="text-[10px] text-slate-400 font-bold px-3 py-1.5 uppercase tracking-wider">Booking Options</div>
+              <button
+                type="button"
+                onClick={() => handleMenuOption("Flight Booking")}
+                className="w-full text-left px-3 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 hover:text-brand rounded-xl transition-colors flex items-center gap-2"
+              >
+                ✈️ Flight Booking
+              </button>
+              <button
+                type="button"
+                onClick={() => handleMenuOption("Hotel Booking")}
+                className="w-full text-left px-3 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 hover:text-brand rounded-xl transition-colors flex items-center gap-2"
+              >
+                🏨 Hotel Booking
+              </button>
+              <button
+                type="button"
+                onClick={() => handleMenuOption("Itinerary Plan")}
+                className="w-full text-left px-3 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 hover:text-brand rounded-xl transition-colors flex items-center gap-2"
+              >
+                🗺️ Itinerary Plan
+              </button>
+            </div>
+          )}
         </form>
       </div>
     </div>
