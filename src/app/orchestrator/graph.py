@@ -162,6 +162,9 @@ def parse_intent(state: ConversationState):
         except Exception as e:
             print(f"Error parsing manual flight selection: {e}")
             
+    if step == "awaiting_passenger_count" and not user_msg_text.startswith("I would like to select "):
+        result.intent = "provide_passenger_count"
+            
     is_confirmation = result.intent == "confirm" or msg_text_lower in ["yes", "y", "yeah", "correct", "right", "ok", "okay", "sure", "proceed"] or "yes" in msg_text_lower
     is_rejection = result.intent == "reject" or msg_text_lower in ["no", "n", "nope", "wrong", "wait"] or "no" in msg_text_lower
 
