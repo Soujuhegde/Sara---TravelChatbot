@@ -362,7 +362,7 @@ def parse_intent(state: ConversationState):
                 step = "awaiting_passenger_details"
                 
     elif result.intent == "payment_done" or user_msg_text.strip().lower() == "payment done":
-        if step == "hotel_awaiting_payment":
+        if step in ["hotel_awaiting_payment", "hotel_summary"] or (step == "awaiting_payment" and selected_hotel.get("name")):
             step = "hotel_booking_confirmed"
         else:
             step = "booking_confirmed"
@@ -713,7 +713,15 @@ Consistency: Apply these rules uniformly to all user interactions.
                 if nights <= 0: nights = 1
             except:
                 nights = 1
-            total_p = p_clean * nights
+                
+            rooms_str = hotel_params.get("rooms", "1")
+            try:
+                rooms_clean = int("".join(filter(str.isdigit, rooms_str)))
+                if rooms_clean <= 0: rooms_clean = 1
+            except:
+                rooms_clean = 1
+                
+            total_p = p_clean * nights * rooms_clean
             total_price = f"₹{total_p:,}.00"
         except:
             nights = 1
@@ -745,8 +753,8 @@ Consistency: Apply these rules uniformly to all user interactions.
             "image": selected_hotel.get("images", [""])[0] if selected_hotel.get("images") else "https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=200&q=80"
         }
         
-        msg = f"🎉 Payment Successful! Booking Confirmed. 🎉\n\nI have generated your hotel booking reservation below. Have a wonderful stay!"
-        return {"final_response": msg, "quick_replies": ["Download Confirmation", "View Booking"], "options_to_show": [], "ticket": hotel_ticket}
+        msg = f"🎉 Payment Successful! Booking Confirmed. 🎉\n\nYour stay at {selected_hotel.get('name')} is confirmed with reservation number {pnr}."
+        return {"final_response": msg, "quick_replies": ["Book a Flight", "Plan an Itinerary"], "options_to_show": [], "ticket": hotel_ticket}
         
     elif step == "awaiting_passenger_count":
         msg = "How many adults, children, and infants will be traveling? For instance, you could say '2 adults, 2 children, 1 infant'."
