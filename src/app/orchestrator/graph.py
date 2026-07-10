@@ -15,6 +15,7 @@ class ConversationState(TypedDict):
     messages: List[BaseMessage]
     session_id: str
     current_step: str | None
+    latest_intent: str | None
     flight_params: Dict[str, Any] | None
     pending_clarification: str | None
     quick_replies: List[str] | None
@@ -28,17 +29,20 @@ class ConversationState(TypedDict):
     passenger_count: Dict[str, int] | None
     passengers_details: List[Dict[str, Any]] | None
     current_passenger_index: int | None
+    ticket: Dict[str, Any] | None
 
 class ExtractedInfo(BaseModel):
     intent: Literal["book_flight", "general_qa", "select_flight", "provide_details", "payment_done", "provide_passenger_count", "confirm", "reject"]
     origin: str | None = None
     destination: str | None = None
     departure_date: str | None = None
+    limit: int | None = Field(description="The number of flights the user wants to see, if they explicitly mention a number (e.g. 'show me 5 flights').", default=None)
     journey_type: Literal["One Way", "Round Trip"] | None = None
     selected_class: str | None = None
     selected_airline: str | None = None
-    selected_price: str | None = None
-    passenger_name: str | None = None
+    selected_price: Optional[str] = Field(description="The price of the flight")
+    booking_link: Optional[str] = Field(description="The booking URL link if provided in the message")
+    passenger_name: Optional[str] = Field(description="Name of the passenger")
     passenger_email: str | None = None
     passenger_contact: str | None = None
     passenger_passport: str | None = None
@@ -64,9 +68,16 @@ def parse_intent(state: ConversationState):
     passenger_count = state.get("passenger_count") or {}
     passengers_details = state.get("passengers_details") or []
     current_passenger_index = state.get("current_passenger_index") or 0
+    today = datetime.now()
+    today_date = today.strftime("%A, %Y-%m-%d")
+    tomorrow_date = (today + timedelta(days=1)).strftime("%A, %Y-%m-%d")
     
-    today_date = datetime.now().strftime("%A, %Y-%m-%d")
-    tomorrow_date = (datetime.now() + timedelta(days=1)).strftime("%A, %Y-%m-%d")
+    upcoming_days = []
+    for i in range(7):
+        day = today + timedelta(days=i)
+        upcoming_days.append(f"{day.strftime('%A')} ({day.strftime('%Y-%m-%d')})")
+    upcoming_str = ", ".join(upcoming_days)
+    
     prompt = f"""You are a helpful travel assistant. Analyze the user's latest message and extract their intent and any travel details.
     
     Current known flight params: {flight_params}
@@ -74,10 +85,11 @@ def parse_intent(state: ConversationState):
     Current passenger index being filled: {current_passenger_index + 1}
     Current Date: {today_date}
     Tomorrow's Date: {tomorrow_date}
+    Upcoming 7 days reference: {upcoming_str}
     
     Intents:
     - book_flight: user wants to search for flights.
-    - select_flight: user selects a specific flight and class.
+    - select_flight: user selects a specific flight and class. YOU MUST extract selected_airline, selected_class, selected_price, and booking_link if present.
     - provide_passenger_count: user tells you how many adults/children/infants. Extract this into adults_count, children_count, infants_count.
     - provide_details: user provides their passenger info (name, email, contact, passport).
     - payment_done: user says payment is done.
@@ -88,7 +100,11 @@ def parse_intent(state: ConversationState):
     Extract the information as structured data. If they just say hi, intent is general_qa.
     CRITICAL: 
     - Convert all dates strictly to YYYY-MM-DD format.
-    - Convert all origin and destination cities/airports strictly to their 3-letter IATA airport codes (e.g., 'Bangalore' -> 'BLR', 'Singapore' -> 'SIN', 'New York' -> 'JFK')."""
+    - Convert all origin and destination cities/countries/airports strictly to their most prominent 3-letter IATA airport code.
+      - If a country is provided (e.g., 'India', 'France'), output its major international airport code (e.g., 'DEL' for India, 'CDG' for France).
+      - If a city has multiple airports, output the primary airport code (e.g., 'LHR' for London, 'JFK' for New York) or the city code.
+      - Be extremely careful with spelling and similar-sounding names (e.g., 'Mangalore' is 'IXE' and must not be confused with 'Bangalore' 'BLR'; 'Goa' is 'GOI' and not 'Genoa').
+      - Use your comprehensive knowledge to map ANY global city or country correctly."""
     
     messages = [SystemMessage(content=prompt)] + recent_messages
     
@@ -97,6 +113,7 @@ def parse_intent(state: ConversationState):
     
     if result.origin: flight_params["origin"] = result.origin
     if result.destination: flight_params["destination"] = result.destination
+    if result.limit: flight_params["limit"] = result.limit
     
     invalid_date = False
     if result.departure_date:
@@ -114,25 +131,54 @@ def parse_intent(state: ConversationState):
     
     step = state.get("current_step", "start")
     
-    if result.intent == "select_flight":
-        if result.selected_class: selected_flight["class"] = result.selected_class
-        if result.selected_airline: selected_flight["airline"] = result.selected_airline
-        if result.selected_price: selected_flight["price"] = result.selected_price
-        
-        fr = state.get("flight_result") or {}
-        flight_results = fr.get("results") or []
-        if flight_results and "booking_link" in flight_results[0]:
-            selected_flight["booking_link"] = flight_results[0]["booking_link"]
+    # Manual override for flight selection from UI clicks to guarantee accuracy
+    user_msg_text = state["messages"][-1].content.strip()
+    msg_text_lower = user_msg_text.lower()
+    
+    if user_msg_text.startswith("I would like to select "):
+        result.intent = "select_flight"
+        try:
+            parts = user_msg_text.replace("I would like to select ", "").split(" class on ")
+            cls = parts[0]
+            rest = parts[1].split(" for ")
+            airline_flight = rest[0]
+            price = rest[1]
+            selected_flight["class"] = cls
+            selected_flight["airline"] = airline_flight
+            selected_flight["price"] = price
             
-        step = "awaiting_passenger_count"
-        
-    elif step == "verify_passenger_count":
-        if result.intent == "confirm" or "yes" in state["messages"][-1].content.lower():
+            fr = state.get("flight_result") or {}
+            for f in fr.get("results", []):
+                if airline_flight in f.get("airline_name", "") or airline_flight in f.get("flight_numbers", "") or f.get("flight_numbers") in airline_flight:
+                    selected_flight["booking_link"] = f.get("booking_link", "https://flights.google.com")
+                    break
+        except Exception as e:
+            print(f"Error parsing manual flight selection: {e}")
+            
+    is_confirmation = result.intent == "confirm" or msg_text_lower in ["yes", "y", "yeah", "correct", "right", "ok", "okay", "sure", "proceed"] or "yes" in msg_text_lower
+    is_rejection = result.intent == "reject" or msg_text_lower in ["no", "n", "nope", "wrong", "wait"] or "no" in msg_text_lower
+
+    # If we are verifying passenger count, strict intercept of confirmation/rejection to prevent LLM hallucinations
+    if step == "verify_passenger_count":
+        if is_confirmation:
             step = "awaiting_passenger_details"
-        elif result.intent == "reject" or "no" in state["messages"][-1].content.lower():
+            result.intent = "confirm"
+        elif is_rejection:
             step = "awaiting_passenger_count"
-        else:
+            result.intent = "reject"
+        elif result.intent == "provide_details":
+            step = "awaiting_passenger_details"
+        elif result.intent == "select_flight" and not user_msg_text.startswith("I would like to select "):
+            # Prevent hallucinated flight selection
             step = "verify_passenger_count"
+            
+    if step != "verify_passenger_count" and result.intent == "select_flight":
+        if result.selected_airline: selected_flight["airline"] = result.selected_airline
+        if result.selected_class: selected_flight["class"] = result.selected_class
+        if result.selected_price: selected_flight["price"] = result.selected_price
+        if hasattr(result, "booking_link") and result.booking_link: selected_flight["booking_link"] = result.booking_link
+        
+        step = "awaiting_passenger_count"
             
     elif result.intent == "provide_passenger_count" or (step == "awaiting_passenger_count" and result.intent != "general_qa"):
         adults = result.adults_count or 1
@@ -188,6 +234,7 @@ def parse_intent(state: ConversationState):
         
     return {
         "current_step": step,
+        "latest_intent": result.intent,
         "flight_params": flight_params,
         "passenger_details": passenger_details,
         "selected_flight": selected_flight,
@@ -204,19 +251,28 @@ def route_next(state: ConversationState):
 
 def ask_clarification(state: ConversationState):
     step = state.get("current_step")
+    latest_intent = state.get("latest_intent")
     msg = "How can I help you?"
     replies = []
     options = []
     
-    if step == "general_qa":
+    # If the user goes off-topic or says something conversational/harsh, handle it dynamically
+    if latest_intent == "general_qa" or step == "general_qa":
         if llm:
-            qa_prompt = "You are a helpful travel assistant. Please respond to the user's query naturally."
-            msgs = [SystemMessage(content=qa_prompt)] + state["messages"][-5:]
-            response = llm.invoke(msgs)
-            msg = response.content
+            qa_prompt = f"You are a polite and professional travel assistant. The user just said something conversational, out of context, or possibly harsh. Respond to them gracefully like a real human. Acknowledge their message, de-escalate if necessary, and then gently steer the conversation back to our current booking step. Our current step is: '{step}'. (For context: awaiting_origin_dest = asking where they are flying; awaiting_passenger_count = asking how many people; awaiting_passenger_details = asking for names/passports). Keep it concise and natural."
+            msgs = [SystemMessage(content=qa_prompt)] + state["messages"][-2:]
+            try:
+                response = llm.invoke(msgs)
+                msg = response.content
+            except Exception as e:
+                print(f"LLM Error in general_qa fallback: {e}")
+                msg = "I'm here to help you with your travel bookings! Could we get back to that?"
         else:
-            msg = "Hello! How may I assist you today?"
-    elif step == "awaiting_origin_dest":
+            msg = "I'm here to help you with your travel bookings! Could we get back to that?"
+            
+        return {"final_response": msg, "quick_replies": [], "options_to_show": []}
+        
+    if step == "awaiting_origin_dest":
         msg = "I can help with that! Where are you flying from and to?"
     elif step == "invalid_departure_date":
         msg = "Wrong data. Please enter a present or future date."
@@ -269,12 +325,27 @@ def ask_clarification(state: ConversationState):
             
         pnr = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
             
-        pax_text = ""
-        for i, pax in enumerate(pax_list):
-            pax_text += f"**Passenger {i+1}:** {pax.get('name', 'N/A')} (Passport: {pax.get('passport', 'N/A')})\n"
-            
-        msg = f"🎉 **Payment Successful! Booking Confirmed.** 🎉\n\n**PNR:** {pnr}\n\n{pax_text}\n**Flight:** {flight.get('airline', 'N/A')} ({flight.get('class', 'N/A')})\n**Total Paid:** {flight.get('price', 'N/A')}\n\nHave a great trip! Let me know if you need to book anything else."
+        # Determine the origin and destination based on the flight result if possible
+        origin = state.get("flight_params", {}).get("origin", "Origin")
+        destination = state.get("flight_params", {}).get("destination", "Destination")
+        today_date = datetime.now().strftime("%A, %Y-%m-%d")
+        date = state.get("flight_params", {}).get("departure_date", today_date)
         
+        # Build the ticket dictionary
+        ticket = {
+            "pnr": pnr,
+            "airline": flight.get('airline', 'N/A'),
+            "flight_class": flight.get('class', 'Economy'),
+            "price": flight.get('price', 'N/A'),
+            "date": date,
+            "origin": origin.upper(),
+            "destination": destination.upper(),
+            "passengers": pax_list
+        }
+            
+        msg = f"🎉 **Payment Successful! Booking Confirmed.** 🎉\n\nI have generated your flight ticket below. Have a great trip! Let me know if you need to book anything else."
+        return {"final_response": msg, "quick_replies": [], "options_to_show": [], "ticket": ticket}
+
     return {"final_response": msg, "quick_replies": replies, "options_to_show": options}
 
 def flight_node(state: ConversationState):

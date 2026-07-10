@@ -42,9 +42,15 @@ async def chat_endpoint(request: ChatRequest):
     # Update session
     sessions[session_id] = new_state
     
+    options_to_show = new_state.get("options_to_show") or []
+    ticket = new_state.get("ticket")
+    clarification_needed = new_state.get("pending_clarification")
+    quick_replies = new_state.get("quick_replies", [])
+
     return ChatResponse(
         message=final_resp,
-        options=new_state.get("options_to_show", []),
-        clarification_needed=bool(new_state.get("pending_clarification")),
-        quick_replies=new_state.get("quick_replies", [])
+        options=options_to_show,
+        clarification_needed=bool(clarification_needed),
+        quick_replies=quick_replies,
+        ticket=ticket
     )

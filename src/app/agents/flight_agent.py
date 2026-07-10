@@ -1,5 +1,4 @@
 from app.schemas.chat import TaskRequest, TaskResponse
-from app.utils.mock_data import mock_search_flights
 import os
 import time
 import httpx
@@ -51,27 +50,26 @@ def call_flight_agent(request: TaskRequest) -> TaskResponse:
             
             google_flights_url = data.get("search_metadata", {}).get("google_flights_url", "https://flights.google.com")
             
-            flights = data.get("best_flights", [])
-            if not flights:
-                flights = data.get("other_flights", [])
+            best_flights = data.get("best_flights", [])
+            other_flights = data.get("other_flights", [])
+            flights = best_flights + other_flights
                 
             seen_flight_numbers = set()
-            for f in flights:
-                if len(results) >= 5:
-                    break
-                    
-                flight_info = f.get("flights", [{}])[0]
-                flight_number = flight_info.get("flight_number", "Unknown")
+            
+            def add_flight(f):
+                first_leg = f.get("flights", [{}])[0]
+                last_leg = f.get("flights", [{}])[-1]
+                flight_number = first_leg.get("flight_number", "Unknown")
                 
                 if flight_number in seen_flight_numbers and flight_number != "Unknown":
-                    continue
+                    return False
                 seen_flight_numbers.add(flight_number)
                 
-                airline = flight_info.get("airline", "Unknown Airline")
-                logo = flight_info.get("airline_logo", "https://upload.wikimedia.org/wikipedia/commons/thumb/1/18/Air_India_Logo.svg/512px-Air_India_Logo.svg.png")
+                airline = first_leg.get("airline", "Unknown Airline")
+                logo = first_leg.get("airline_logo", "https://upload.wikimedia.org/wikipedia/commons/thumb/1/18/Air_India_Logo.svg/512px-Air_India_Logo.svg.png")
                 
-                dep = flight_info.get("departure_airport", {})
-                arr = flight_info.get("arrival_airport", {})
+                dep = first_leg.get("departure_airport", {})
+                arr = last_leg.get("arrival_airport", {})
                 dep_time_raw = dep.get("time", "")
                 arr_time_raw = arr.get("time", "")
                 
@@ -80,6 +78,24 @@ def call_flight_agent(request: TaskRequest) -> TaskResponse:
                 stops_count = len(f.get("flights", [])) - 1
                 stops_str = "Non-stop" if stops_count == 0 else f"{stops_count} Stop{'s' if stops_count > 1 else ''}"
                 base_price = f.get("price", 0)
+                
+                origin_code = dep.get('id', params.get('origin', ''))
+                destination_code = arr.get('id', params.get('destination', ''))
+                
+                custom_link = google_flights_url
+                try:
+                    num = flight_number.split(" ")[-1] if " " in flight_number else flight_number
+                    airline_lower = airline.lower()
+                    if airline_lower == "indigo":
+                        custom_link = f"https://www.goindigo.in/book/flight-select.html?cid=metasearch|googleflights&fareType=R&flightNumber={num}&origin={origin_code}&destination={destination_code}"
+                    elif airline_lower == "air india express":
+                        custom_link = f"https://www.airindiaexpress.com/book?flightNumber={num}&origin={origin_code}&destination={destination_code}"
+                    elif airline_lower == "air india":
+                        custom_link = f"https://www.airindia.com/in/en/ibe/booking.html?flightNumber={num}&origin={origin_code}&destination={destination_code}#/availability/departure"
+                    elif "srilankan" in airline_lower:
+                        custom_link = f"https://www.srilankan.com/en_uk/plan-and-book/flight-selection?origin={origin_code}&destination={destination_code}&flightNumber={num}"
+                except:
+                    pass
                 
                 if base_price:
                     formatted_base = f"INR {base_price:,.2f}"
@@ -102,7 +118,7 @@ def call_flight_agent(request: TaskRequest) -> TaskResponse:
                     "destination_airport": f"{arr.get('name', 'Destination')} ({arr.get('id', params.get('destination'))})",
                     "duration": duration,
                     "stops": stops_str,
-                    "booking_link": google_flights_url,
+                    "booking_link": custom_link,
                     "pricing": [
                         {"class": "Economy", "price": formatted_base},
                         {"class": "Premium Economy", "price": formatted_prem},
@@ -110,14 +126,30 @@ def call_flight_agent(request: TaskRequest) -> TaskResponse:
                     ]
                 }
                 results.append(card)
+                return True
+
+            limit = params.get("limit", 5)
+            seen_airlines = set()
+            for f in flights:
+                if len(results) >= limit:
+                    break
+                flight_info = f.get("flights", [{}])[0]
+                airline = flight_info.get("airline", "Unknown Airline")
+                if airline not in seen_airlines:
+                    if add_flight(f):
+                        seen_airlines.add(airline)
+            
+            if len(results) < limit:
+                for f in flights:
+                    if len(results) >= limit:
+                        break
+                    add_flight(f)
         except Exception as e:
             print(f"SerpAPI Error: {e}")
 
-    # Fallback to mock data if no results were found (past date, API error, etc.)
+    # If no results were found (past date, API error, etc.), do not fallback to mock data as per user request.
     if not results:
-        print("Falling back to mock data...")
-        mock_res = mock_search_flights(params)
-        results = mock_res.get("results", [])
+        print("No real-time flights found.")
 
     return TaskResponse(
         task_id=request.task_id,

@@ -2,6 +2,7 @@ import React, { useRef, useEffect } from 'react';
 import MessageBubble from './MessageBubble';
 import FlightCard from './FlightCard';
 import HotelCard from './HotelCard';
+import FlightTicket from './FlightTicket';
 
 const ChatArea = ({ messages, isLoading }) => {
   const messagesEndRef = useRef(null);
@@ -46,6 +47,15 @@ const ChatArea = ({ messages, isLoading }) => {
                         <FlightCard key={`flight-${i}`} flight={flight} />
                       ))}
                     </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Render Flight Ticket if it exists in the bot's response */}
+              {msg.ticket && (
+                <div className="w-full bg-brand-light/30 border-b border-black/10 pb-6 pt-2">
+                  <div className="max-w-3xl mx-auto px-4 md:px-6 pl-16 md:pl-18">
+                    <FlightTicket ticket={msg.ticket} />
                   </div>
                 </div>
               )}

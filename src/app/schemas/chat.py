@@ -25,3 +25,4 @@ class ChatResponse(BaseModel):
     options: List[dict] = Field(default_factory=list)
     clarification_needed: bool = False
     quick_replies: List[str] = Field(default_factory=list)
+    ticket: Optional[dict] = None

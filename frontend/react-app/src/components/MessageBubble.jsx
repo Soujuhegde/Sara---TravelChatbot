@@ -1,5 +1,6 @@
 import React from 'react';
 import { Plane, Hotel, CheckCircle, ChevronRight } from 'lucide-react';
+import FlightTicket from './FlightTicket';
 
 const FlightCard = ({ option }) => {
   return (
@@ -84,9 +85,9 @@ const MessageBubble = ({ message, onQuickReply, onOptionSelect }) => {
         </div>
       )}
       
-      <div className={`w-full max-w-[95%] lg:max-w-[85%] ${isUser ? 'order-2' : 'order-1'}`}>
+      <div className={`w-full max-w-[95%] lg:max-w-[85%] ${isUser ? 'order-2 flex flex-col items-end' : 'order-1 flex flex-col items-start'}`}>
         <div 
-          className={`p-5 shadow-sm text-base ${
+          className={`p-5 shadow-sm text-base w-fit ${
             isUser 
               ? 'bg-brand text-white rounded-3xl rounded-tr-sm' 
               : 'bg-white text-slate-700 rounded-3xl rounded-tl-sm border border-slate-100'
@@ -112,23 +113,31 @@ const MessageBubble = ({ message, onQuickReply, onOptionSelect }) => {
         
         {/* Flight Cards and Action Buttons */}
         {message.options && message.options.length > 0 && (
-          <div className="mt-4 grid grid-cols-1 gap-4">
+          <div className="mt-4 grid grid-cols-1 gap-4 w-full">
             {message.options.map((opt, i) => {
               if (opt.type === 'action_button') {
                 return (
-                  <a 
-                    key={i} 
-                    href={opt.url} 
-                    target="_blank" 
-                    rel="noopener noreferrer" 
-                    className="block w-full text-center bg-brand text-white font-bold py-3 px-4 rounded-xl shadow hover:opacity-90 transition-opacity"
-                  >
-                    {opt.label}
-                  </a>
+                  <div key={i} className="flex">
+                    <a 
+                      href={opt.url} 
+                      target="_blank" 
+                      rel="noopener noreferrer" 
+                      className="inline-block w-fit text-center bg-brand text-white font-bold py-3 px-6 rounded-xl shadow hover:opacity-90 transition-opacity"
+                    >
+                      {opt.label}
+                    </a>
+                  </div>
                 );
               }
               return <FlightCard key={i} option={{...opt, onOptionSelect}} />;
             })}
+          </div>
+        )}
+
+        {/* Flight Ticket */}
+        {message.ticket && (
+          <div className="mt-4 w-full">
+            <FlightTicket ticket={message.ticket} />
           </div>
         )}
       </div>
