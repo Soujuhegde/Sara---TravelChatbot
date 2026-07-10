@@ -1,12 +1,12 @@
 import os
 from datetime import datetime, timedelta
-from typing import TypedDict, Annotated, Literal, List, Dict, Any
+from typing import TypedDict, Annotated, Literal, List, Dict, Any, Optional
 from langgraph.graph import StateGraph, START, END
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
 from langchain_groq import ChatGroq
 from app.schemas.chat import TaskRequest, TaskResponse
 from app.agents.flight_agent import call_flight_agent
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import time
 import random
 import string
