@@ -276,7 +276,7 @@ def parse_intent(state: ConversationState):
         
         step = "awaiting_passenger_count"
         
-    elif step != "verify_passenger_count" and result.intent == "select_hotel":
+    elif step != "verify_passenger_count" and result.intent == "select_hotel" and not step.startswith("hotel_awaiting_") and step != "hotel_summary":
         pax = passengers_details[0] if passengers_details else (passenger_details or {})
         if pax.get("name") and not selected_hotel.get("guest_name"):
             selected_hotel["guest_name"] = pax.get("name")
