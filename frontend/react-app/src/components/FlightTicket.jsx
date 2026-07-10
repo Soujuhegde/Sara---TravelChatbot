@@ -3,94 +3,181 @@ import React from 'react';
 const FlightTicket = ({ ticket }) => {
   if (!ticket) return null;
 
+  const primaryPassenger = ticket.passengers && ticket.passengers.length > 0 ? ticket.passengers[0].name?.toUpperCase() || 'PASSENGER' : 'PASSENGER';
+
+  // Format date if needed, or use as is
+  const displayDate = ticket.date.toUpperCase();
+
   return (
-    <div className="w-full max-w-2xl mx-auto my-6 bg-white rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] overflow-hidden flex flex-col md:flex-row relative font-sans">
+    <div className="w-full max-w-4xl mx-auto my-6 flex flex-col md:flex-row font-sans rounded-2xl overflow-hidden shadow-2xl bg-[#4a81e3] p-2">
       
-      {/* Left Section - Main Details */}
-      <div className="flex-1 p-6 md:p-8 relative">
-        <div className="flex justify-between items-start mb-8">
-          <div>
-            <span className="inline-block px-3 py-1 bg-brand-light text-brand-orange text-xs font-bold uppercase tracking-wider rounded-full mb-2">
-              Boarding Pass
+      {/* Left Section (White Card inside Blue) */}
+      <div className="flex-1 bg-white rounded-xl p-6 md:p-8 relative flex flex-col">
+        
+        {/* Top Header */}
+        <div className="flex justify-between items-start mb-6">
+          <div className="flex items-center gap-3">
+            <div className="w-12 h-12 bg-[#4a81e3] text-white rounded-full flex items-center justify-center">
+              <svg viewBox="0 0 24 24" fill="currentColor" className="w-8 h-8 transform -rotate-45">
+                <path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z" />
+              </svg>
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-[#204996] leading-tight uppercase tracking-wide">
+                {ticket.airline}
+              </h2>
+              <p className="text-xs font-semibold text-[#4a81e3] tracking-widest">AIRLINES</p>
+            </div>
+          </div>
+          <div className="flex flex-col gap-1">
+            <span className="px-4 py-1 bg-[#4a81e3] text-white text-xs font-bold uppercase tracking-wider rounded">
+              {ticket.flight_class}
             </span>
-            <h2 className="text-2xl font-bold text-gray-800 tracking-tight">{ticket.airline}</h2>
-            <p className="text-sm text-gray-500 font-medium">{ticket.flight_class} Class</p>
+            <span className="px-4 py-1 bg-[#4a81e3] text-white text-xs font-bold uppercase tracking-wider rounded text-center">
+              GROUP {ticket.group}
+            </span>
           </div>
+        </div>
+
+        <div className="border-b-2 border-gray-100 mb-8 w-full"></div>
+
+        {/* Middle Route Section */}
+        <div className="flex justify-between items-center mb-10 px-4">
+          <div className="text-left">
+            <p className="text-sm text-gray-400 uppercase tracking-widest font-semibold mb-1">From</p>
+            <p className="text-5xl font-bold text-[#204996] mb-1">{ticket.origin}</p>
+            <p className="text-sm font-semibold text-gray-500 uppercase">{ticket.origin_full || 'Origin'}</p>
+          </div>
+          
+          <div className="flex-1 px-6 flex items-center justify-center relative">
+            <div className="w-full h-[2px] bg-gray-300 border-dashed border-t-2 border-gray-300 absolute"></div>
+            <div className="z-10 text-[#4a81e3] transform rotate-90 bg-white px-2">
+              <svg viewBox="0 0 24 24" fill="currentColor" className="w-8 h-8">
+                <path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z" />
+              </svg>
+            </div>
+          </div>
+          
           <div className="text-right">
-            <p className="text-xs text-gray-400 uppercase tracking-widest mb-1">PNR</p>
-            <p className="text-2xl font-mono font-bold text-gray-800 tracking-wider">{ticket.pnr}</p>
+            <p className="text-sm text-gray-400 uppercase tracking-widest font-semibold mb-1">To</p>
+            <p className="text-5xl font-bold text-[#204996] mb-1">{ticket.destination}</p>
+            <p className="text-sm font-semibold text-gray-500 uppercase">{ticket.destination_full || 'Destination'}</p>
           </div>
         </div>
 
-        <div className="flex items-center justify-between mb-8 relative">
-          <div className="text-center">
-            <p className="text-4xl font-bold text-gray-800 mb-1">{ticket.origin}</p>
-            <p className="text-xs text-gray-500 uppercase font-medium">Origin</p>
-          </div>
-          
-          <div className="flex-1 px-4 flex items-center justify-center relative">
-            <div className="w-full h-[2px] bg-gray-200 border-dashed border-t-2 border-gray-300 absolute"></div>
-            <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center z-10 border-2 border-gray-100 shadow-sm text-brand-orange transform rotate-45">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5"><path d="M22 2 11 13"></path><path d="m22 2-7 20-4-9-9-4Z"></path></svg>
-            </div>
-          </div>
-          
-          <div className="text-center">
-            <p className="text-4xl font-bold text-gray-800 mb-1">{ticket.destination}</p>
-            <p className="text-xs text-gray-500 uppercase font-medium">Destination</p>
-          </div>
-        </div>
-
-        <div className="bg-gray-50 rounded-xl p-4 border border-gray-100">
-          <p className="text-xs text-gray-500 uppercase tracking-wider mb-2 font-semibold">Passengers</p>
-          <div className="space-y-2">
-            {ticket.passengers.map((p, idx) => (
-              <div key={idx} className="flex justify-between items-center text-sm">
-                <span className="font-semibold text-gray-800">{p.name || 'N/A'}</span>
-                <span className="text-gray-500 font-mono text-xs">PP: {p.passport || 'N/A'}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Divider */}
-      <div className="hidden md:flex flex-col items-center justify-center relative w-8">
-        <div className="absolute top-0 bottom-0 w-[2px] border-l-2 border-dashed border-gray-200"></div>
-        <div className="w-8 h-8 bg-brand-light rounded-full absolute -top-4 shadow-inner"></div>
-        <div className="w-8 h-8 bg-brand-light rounded-full absolute -bottom-4 shadow-inner"></div>
-      </div>
-
-      {/* Right Section - Tear off */}
-      <div className="w-full md:w-64 bg-gradient-to-br from-brand-orange to-[#ff7a33] p-6 md:p-8 text-white flex flex-col justify-between relative overflow-hidden">
-        <div className="relative z-10">
-          <p className="text-white/80 text-xs uppercase tracking-widest mb-1">Total Paid</p>
-          <p className="text-3xl font-bold mb-6">{ticket.price}</p>
-          
-          <div className="space-y-4">
+        {/* Bottom Details Box */}
+        <div className="bg-[#f2f6fc] rounded-xl p-5 flex justify-between items-center mt-auto">
+          <div className="grid grid-cols-3 gap-y-4 gap-x-8 w-full">
             <div>
-              <p className="text-white/70 text-xs uppercase tracking-wider mb-1">Date</p>
-              <p className="font-semibold">{ticket.date}</p>
+              <p className="text-[10px] text-gray-400 uppercase tracking-widest font-bold mb-1">Passenger</p>
+              <p className="font-bold text-gray-800 text-sm truncate">{primaryPassenger}</p>
             </div>
             <div>
-              <p className="text-white/70 text-xs uppercase tracking-wider mb-1">Flight</p>
-              <p className="font-semibold">{ticket.airline}</p>
+              <p className="text-[10px] text-gray-400 uppercase tracking-widest font-bold mb-1">Date</p>
+              <p className="font-bold text-gray-800 text-sm">{displayDate}</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-gray-400 uppercase tracking-widest font-bold mb-1">Gate</p>
+              <p className="font-bold text-gray-800 text-sm">{ticket.gate}</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-gray-400 uppercase tracking-widest font-bold mb-1">Flight</p>
+              <p className="font-bold text-gray-800 text-sm">{ticket.flight_numbers}</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-gray-400 uppercase tracking-widest font-bold mb-1">Boarding Time</p>
+              <p className="font-bold text-gray-800 text-sm">{ticket.departure_time}</p>
+            </div>
+            <div>
+              <p className="text-[10px] text-gray-400 uppercase tracking-widest font-bold mb-1">Seat</p>
+              <p className="font-bold text-gray-800 text-sm">{ticket.seat}</p>
+            </div>
+          </div>
+          
+          <div className="ml-4 flex-shrink-0">
+            {/* Mock QR Code representation */}
+            <div className="w-20 h-20 bg-white p-1 rounded grid grid-cols-4 grid-rows-4 gap-0.5">
+              {[...Array(16)].map((_, i) => (
+                <div key={i} className={`bg-gray-800 ${Math.random() > 0.3 ? 'opacity-100' : 'opacity-0'}`}></div>
+              ))}
             </div>
           </div>
         </div>
-        
-        {/* Fake Barcode */}
-        <div className="mt-8 relative z-10 opacity-90 mix-blend-overlay">
-           <svg className="w-full h-12" preserveAspectRatio="none" viewBox="0 0 100 100">
-             {[...Array(20)].map((_, i) => (
-               <rect key={i} x={i * 5 + (Math.random() * 2)} y="0" width={Math.random() * 3 + 1} height="100" fill="currentColor" />
-             ))}
-           </svg>
-        </div>
-        
-        {/* Decorative circle */}
-        <div className="absolute -bottom-16 -right-16 w-48 h-48 bg-white/10 rounded-full blur-2xl"></div>
       </div>
+
+      {/* Dashed Separator */}
+      <div className="hidden md:flex flex-col items-center justify-center w-6 relative">
+        <div className="absolute top-0 bottom-0 w-[2px] border-l-[3px] border-dashed border-white/40"></div>
+      </div>
+
+      {/* Right Section (Blue area) */}
+      <div className="w-full md:w-80 p-6 md:p-8 text-white flex flex-col relative rounded-r-2xl border-t md:border-t-0 md:border-l-0 border-white/20 border-dashed mt-4 md:mt-0">
+        <h3 className="text-xl font-bold tracking-widest uppercase mb-6 text-center">Boarding Pass</h3>
+        
+        {/* Small White Route Box */}
+        <div className="bg-white text-[#204996] rounded-xl p-3 flex justify-between items-center mb-8 w-full shadow-inner">
+          <div className="text-center">
+            <p className="text-[10px] text-gray-400 uppercase tracking-widest font-bold">From</p>
+            <p className="text-2xl font-bold">{ticket.origin}</p>
+          </div>
+          <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5 transform rotate-90 text-[#4a81e3]">
+            <path d="M21 16v-2l-8-5V3.5c0-.83-.67-1.5-1.5-1.5S10 2.67 10 3.5V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z" />
+          </svg>
+          <div className="text-center">
+            <p className="text-[10px] text-gray-400 uppercase tracking-widest font-bold">To</p>
+            <p className="text-2xl font-bold">{ticket.destination}</p>
+          </div>
+        </div>
+
+        {/* Text Details */}
+        <div className="grid grid-cols-2 gap-y-5 gap-x-2 text-sm w-full">
+          <div className="col-span-2">
+            <p className="text-[9px] text-white/60 uppercase tracking-widest mb-0.5">Passenger Name</p>
+            <p className="font-semibold truncate">{primaryPassenger}</p>
+          </div>
+          <div className="col-span-2 flex justify-between">
+            <div>
+              <p className="text-[9px] text-white/60 uppercase tracking-widest mb-0.5">Gate</p>
+              <p className="font-semibold">{ticket.gate}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-[9px] text-white/60 uppercase tracking-widest mb-0.5">Flight</p>
+              <p className="font-semibold">{ticket.flight_numbers}</p>
+            </div>
+          </div>
+          
+          <div>
+            <p className="text-[9px] text-white/60 uppercase tracking-widest mb-0.5">Date</p>
+            <p className="font-semibold">{displayDate}</p>
+          </div>
+          <div>
+            <p className="text-[9px] text-white/60 uppercase tracking-widest mb-0.5">Boarding Time</p>
+            <p className="font-semibold">{ticket.departure_time}</p>
+          </div>
+
+          <div>
+            <p className="text-[9px] text-white/60 uppercase tracking-widest mb-0.5">Departed</p>
+            <p className="font-semibold">{ticket.departure_time}</p>
+          </div>
+          <div>
+            <p className="text-[9px] text-white/60 uppercase tracking-widest mb-0.5">Arrived</p>
+            <p className="font-semibold">{ticket.arrival_time}</p>
+          </div>
+        </div>
+
+        {/* Bottom Boxes */}
+        <div className="flex gap-4 mt-auto pt-6">
+          <div className="flex-1 border border-white/40 rounded-lg p-2 text-center bg-white/10">
+            <p className="text-[9px] text-white/60 uppercase tracking-widest mb-1">Group</p>
+            <p className="text-xl font-bold">{ticket.group}</p>
+          </div>
+          <div className="flex-1 border border-white/40 rounded-lg p-2 text-center bg-white/10">
+            <p className="text-[9px] text-white/60 uppercase tracking-widest mb-1">Seat</p>
+            <p className="text-xl font-bold">{ticket.seat}</p>
+          </div>
+        </div>
+      </div>
+
     </div>
   );
 };

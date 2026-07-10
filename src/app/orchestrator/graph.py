@@ -151,6 +151,13 @@ def parse_intent(state: ConversationState):
             for f in fr.get("results", []):
                 if airline_flight in f.get("airline_name", "") or airline_flight in f.get("flight_numbers", "") or f.get("flight_numbers") in airline_flight:
                     selected_flight["booking_link"] = f.get("booking_link", "https://flights.google.com")
+                    selected_flight["flight_numbers"] = f.get("flight_numbers", "N/A")
+                    selected_flight["departure_time"] = f.get("departure_time", "00:00")
+                    selected_flight["arrival_time"] = f.get("arrival_time", "00:00")
+                    selected_flight["origin_airport"] = f.get("origin_airport", "Origin")
+                    selected_flight["destination_airport"] = f.get("destination_airport", "Destination")
+                    selected_flight["airline_logo"] = f.get("airline_logo", "")
+                    selected_flight["airline_name"] = f.get("airline_name", airline_flight)
                     break
         except Exception as e:
             print(f"Error parsing manual flight selection: {e}")
@@ -334,16 +341,25 @@ def ask_clarification(state: ConversationState):
         # Build the ticket dictionary
         ticket = {
             "pnr": pnr,
-            "airline": flight.get('airline', 'N/A'),
+            "airline": flight.get('airline_name', flight.get('airline', 'N/A')),
+            "flight_numbers": flight.get('flight_numbers', 'N/A'),
             "flight_class": flight.get('class', 'Economy'),
             "price": flight.get('price', 'N/A'),
             "date": date,
             "origin": origin.upper(),
             "destination": destination.upper(),
+            "origin_full": flight.get("origin_airport", origin.upper()),
+            "destination_full": flight.get("destination_airport", destination.upper()),
+            "departure_time": flight.get('departure_time', '00:00'),
+            "arrival_time": flight.get('arrival_time', '00:00'),
+            "airline_logo": flight.get('airline_logo', ''),
+            "gate": f"C{random.randint(10, 99)}",
+            "seat": f"{random.randint(1, 30)}{random.choice(['A', 'B', 'C', 'D', 'E', 'F'])}",
+            "group": random.choice(['A', 'B', 'C', 'D', 'E']),
             "passengers": pax_list
         }
             
-        msg = f"🎉 **Payment Successful! Booking Confirmed.** 🎉\n\nI have generated your flight ticket below. Have a great trip! Let me know if you need to book anything else."
+        msg = f"🎉 Payment Successful! Booking Confirmed. 🎉\n\nI have generated your flight ticket below. Have a great trip! Let me know if you need to book anything else."
         return {"final_response": msg, "quick_replies": [], "options_to_show": [], "ticket": ticket}
 
     return {"final_response": msg, "quick_replies": replies, "options_to_show": options}
