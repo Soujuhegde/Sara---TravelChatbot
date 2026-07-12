@@ -19,6 +19,7 @@ def mock_search_flights(params: Dict[str, Any]) -> Dict[str, Any]:
                 "duration": "12h 25m",
                 "stops": "1 Stop",
                 "booking_link": "https://www.airindia.com/in/en/ibe/booking.html#/availability/departure",
+                "price": "INR 28,869.00",
                 "pricing": [
                     {"class": "Economy", "price": "INR 28,869.00"},
                     {"class": "Premium Economy", "price": "INR 39,373.00"},
@@ -38,6 +39,7 @@ def mock_search_flights(params: Dict[str, Any]) -> Dict[str, Any]:
                 "duration": "13h 45m",
                 "stops": "1 Stop",
                 "booking_link": "https://www.goindigo.in/booking/flight-select.html",
+                "price": "INR 29,100.00",
                 "pricing": [
                     {"class": "Economy", "price": "INR 29,100.00"},
                     {"class": "Premium Economy", "price": "INR 40,000.00"},

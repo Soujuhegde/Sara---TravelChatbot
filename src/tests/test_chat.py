@@ -245,14 +245,15 @@ def test_conversational_selection_and_interruption(mock_llm, mock_serp):
     mock_llm.parse_intent.return_value = ExtractedIntent(
         intent="general_qa"
     )
-    mock_llm.generate_response.return_value = "The expensive flight is Expensive Airlines flight EX999 for INR 999.00."
+    mock_llm.generate_response.return_value = '{"answer": "The expensive flight is Expensive Airlines flight EX999 for INR 999.00.", "identified_option_index": 1}'
     
     response = client.post("/api/chat", json={"session_id": session_id, "message": "which is the expensive one in this?"})
     assert response.status_code == 200
     data = response.json()
     assert data["clarification_needed"] is False
     assert "The expensive flight is Expensive Airlines flight EX999 for INR 999.00." in data["message"]
-    assert len(data["options"]) == 2
+    assert "Would you like to proceed with this flight" in data["message"]
+    assert len(data["options"]) == 1
     
     # 5. User says "choose the expensive one"
     intent_val = MagicMock()
@@ -260,7 +261,7 @@ def test_conversational_selection_and_interruption(mock_llm, mock_serp):
     intent_val.origin = None
     intent_val.destination = None
     intent_val.departure_date = None
-    intent_val.selected_option_index = 1
+    intent_val.selected_option_index = 0
     mock_llm.parse_intent.return_value = intent_val
     
     response = client.post("/api/chat", json={"session_id": session_id, "message": "choose the expensive one"})

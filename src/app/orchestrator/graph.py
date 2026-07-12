@@ -222,6 +222,10 @@ def parse_intent(state: ConversationState):
     
     step = state.get("current_step", "start")
     
+    is_confirmation = result.intent == "confirm" or msg_text_lower in ["yes", "y", "yeah", "correct", "right", "ok", "okay", "sure", "proceed"] or "yes" in msg_text_lower
+    is_rejection = result.intent == "reject" or msg_text_lower in ["no", "n", "nope", "wrong", "wait"] or "no" in msg_text_lower
+    is_show_others = is_rejection or "select another" in msg_text_lower or "other options" in msg_text_lower or "show others" in msg_text_lower
+
     if result.origin and (not flight_params.get("origin") or step == "awaiting_origin_dest"): 
         flight_params["origin"] = result.origin
     if result.destination and (not flight_params.get("destination") or step == "awaiting_origin_dest"): 
@@ -309,6 +313,26 @@ def parse_intent(state: ConversationState):
         except Exception as e:
             print(f"Error parsing manual flight selection: {e}")
             
+    # If only one option is currently shown (filtered due to a QA query) and user confirms/proceeds, auto-select it
+    if len(options_to_show) == 1 and step in ["flight_selecting", "hotel_selecting"]:
+        if is_confirmation or user_msg_text.lower() in ["proceed", "proceed with this option", "proceed with this one", "book this", "yes"]:
+            result.intent = "select_flight" if step == "flight_selecting" else "select_hotel"
+            result.selected_option_index = 0
+        elif is_show_others:
+            # Restore the original options list
+            if step == "flight_selecting":
+                fr = state.get("flight_result") or {}
+                original_results = fr.get("results", [])
+                for r in original_results:
+                    r["type"] = "flight"
+                options_to_show = original_results
+            else:
+                hr = state.get("hotel_result") or {}
+                original_results = hr.get("results", [])
+                for r in original_results:
+                    r["type"] = "hotel"
+                options_to_show = original_results[:3]
+
     elif result.intent in ["select_flight", "select_hotel"] and result.selected_option_index is not None and 0 <= result.selected_option_index < len(options_to_show):
         opt = options_to_show[result.selected_option_index]
         if opt.get("type") == "flight" or "pricing" in opt:
@@ -666,7 +690,8 @@ def parse_intent(state: ConversationState):
         "selected_hotel": selected_hotel,
         "pending_clarification": pending_clarification,
         "interruption_question": interruption_question,
-        "clarification_repeats": state.get("clarification_repeats") or {}
+        "clarification_repeats": state.get("clarification_repeats") or {},
+        "options_to_show": options_to_show
     }
 
 def route_next(state: ConversationState):
@@ -693,6 +718,7 @@ def ask_clarification(state: ConversationState):
     # Conversational QA interruption handling
     interruption_question = state.get("interruption_question")
     interruption_answer = ""
+    identified_index = None
     if interruption_question and llm:
         options_to_show = state.get("options_to_show") or []
         options_context = ""
@@ -710,13 +736,47 @@ The user is in the middle of a booking flow, and asked a travel-related question
 Please answer their question directly, accurately, and concisely. Keep your answer strictly under 2 sentences. 
 Do not decline the question if it is travel-related (destination, sightseeing, weather, culture, etc.).
 {options_context}
-"""
+
+You must respond with a JSON object containing two fields:
+1. "answer": Your text answer.
+2. "identified_option_index": If the user's question is asking to identify, compare, or pinpoint a single specific option from the visible options list (e.g., 'which is the cheapest?', 'which is the most expensive?', 'which one is the Indigo flight?', 'which hotel has the pool?'), set this to the 0-based index of that option (integer). Otherwise, set this to null.
+
+JSON format:
+{{
+  "answer": "...",
+  "identified_option_index": null or integer
+}}
+Do not include any other text, markdown formatting, or wrappers. Respond with a raw JSON string."""
         try:
             msgs = [SystemMessage(content=qa_prompt)] + state["messages"][-2:]
             response = llm.invoke(msgs)
-            interruption_answer = response.content.strip() + "\n\n"
+            content = response.content.strip()
+            
+            import re
+            import json
+            
+            match = re.search(r"\{.*\}", content, re.DOTALL)
+            if match:
+                data = json.loads(match.group(0))
+            else:
+                data = json.loads(content)
+                
+            interruption_answer = data.get("answer", "").strip() + "\n\n"
+            identified_index = data.get("identified_option_index")
+            if identified_index is not None:
+                try:
+                    identified_index = int(identified_index)
+                except (ValueError, TypeError):
+                    identified_index = None
         except Exception as e:
-            print(f"Error generating interruption answer: {e}")
+            print(f"Error generating/parsing interruption JSON: {e}")
+            try:
+                msgs = [SystemMessage(content=qa_prompt.split("You must respond with a JSON")[0])] + state["messages"][-2:]
+                response = llm.invoke(msgs)
+                interruption_answer = response.content.strip() + "\n\n"
+            except:
+                interruption_answer = "I'm here to help you with your booking. How would you like to proceed?\n\n"
+            identified_index = None
 
     # Guard repeats: check if we have already repeated the prompt for this step
     clarification_repeats = state.get("clarification_repeats") or {}
@@ -724,6 +784,20 @@ Do not decline the question if it is travel-related (destination, sightseeing, w
 
     def make_response(res_dict):
         if interruption_answer:
+            if identified_index is not None and step in ["flight_selecting", "hotel_selecting"]:
+                options_to_show = state.get("options_to_show") or []
+                if 0 <= identified_index < len(options_to_show):
+                    single_option = options_to_show[identified_index]
+                    type_str = "flight" if (single_option.get("type") == "flight" or "pricing" in single_option) else "hotel"
+                    reminder_prefix = f"Would you like to proceed with this {type_str} or do you want to select another one?"
+                    
+                    res_dict["final_response"] = f"{interruption_answer.strip()}\n\n{reminder_prefix}"
+                    res_dict["options_to_show"] = [single_option]
+                    res_dict["quick_replies"] = ["Proceed with this option", "Select another one"]
+                    res_dict["interruption_question"] = None
+                    res_dict["clarification_repeats"] = clarification_repeats
+                    return res_dict
+
             prompt_msg = res_dict.get("final_response", "")
             
             if step in ["flight_selecting", "hotel_selecting"]:
@@ -743,7 +817,7 @@ Do not decline the question if it is travel-related (destination, sightseeing, w
     if step == "general_qa":
         if llm:
             qa_prompt = f"""You are a specialized travel assistant chatbot designed to handle travel-related queries.
-You should assist the user with any question related to travel, destinations, weather, sightseeing, culture, local food, transportation, hotels, flights, and itineraries.
+You should assist the user with any question related to travel, destinations, weather, sightseeing, culture, local food, hotels, flights, and itineraries.
 
 Guidelines:
 1. Destination Information: If the user asks about a city/place (e.g., "How is Mumbai?", "how is the weather in mumbai", "best time to visit", "what to eat"), this is fully in-scope.
@@ -775,6 +849,9 @@ Guidelines:
         replies = ["One Way", "Round Trip"]
     elif step == "flight_selecting":
         msg = "Here are the flight options. Click to choose your preferred one."
+        options = state.get("options_to_show") or []
+    elif step == "hotel_selecting":
+        msg = "Here are some great hotels for your stay. Click to choose your preferred one."
         options = state.get("options_to_show") or []
         
     elif step == "hotel_confirm_city":

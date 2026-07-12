@@ -119,6 +119,7 @@ def call_flight_agent(request: TaskRequest) -> TaskResponse:
                     "duration": duration,
                     "stops": stops_str,
                     "booking_link": custom_link,
+                    "price": formatted_base,
                     "pricing": [
                         {"class": "Economy", "price": formatted_base},
                         {"class": "Premium Economy", "price": formatted_prem},
