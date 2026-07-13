@@ -11,11 +11,15 @@ It is designed with a decoupled architecture utilizing a **FastAPI + LangGraph**
 *   **Stateful Booking Flows**: Seamlessly guides users through the checklist-driven booking process for both flights and hotels using LangGraph state machines.
 *   **Live Search Integrations**:
     *   **Flights**: Fetches real-time flight options, prices, classes, and schedules via the SerpAPI Google Flights engine.
-    *   **Hotels**: Fetches real-time accommodation details, prices per night, guest ratings, and pictures via the SerpAPI Google Hotels engine (with local mock fallbacks).
-*   **Tailored Luxury Itineraries**: Uses a large language model (`llama-3.3-70b-versatile`) to compile detailed day-by-day tourist plans complete with breakfast, morning/afternoon/evening events, transport suggestions, packing guidelines, and cost estimates.
+    *   **Hotels**: Fetches real-time accommodation details, prices per night, guest ratings, and pictures via the SerpAPI Google Hotels engine.
+*   **Dynamic Suggestion Cards**: Instantly intercepts accommodation suggestion requests (e.g., *"suggest hostels in Goa"*) and launches a card search with next-week stay defaults on screen.
+*   **Booking Changes & Details Cloning**: Detects attempts to select a new hotel when the user already has a confirmed booking, prompting them to cancel the old one and automatically copying over previous parameters (dates, guests, name, contact) to bypass repetitive entry.
+*   **Heuristic Option Filtering**: Filters active flight or hotel options to show only the single target card in response to user questions (e.g. *"which is the cheapest flight?"* or *"show the IndiGo flight"*).
+*   **Automated Email Vouchers**: Integrates Brevo SMTP mailers to dispatch transactional booking confirmations directly to the passenger's inbox upon payment completion.
+*   **Tailored Luxury Itineraries**: Compiles detailed day-by-day tourist plans with breakfast, morning/afternoon/evening events, transport, packing tips, and emergency guides.
 *   **Ticket Generation**: Once booking is confirmed, it generates realistic digital boarding passes (flights) and booking vouchers (hotels) featuring PNR codes, seat numbers, gate information, and barcodes, with option to save them locally.
 *   **Conversational Guardrails & Safety**:
-    *   **Interruption Handling**: Easily answers travel questions in the middle of a booking, and gently redirects back to the current booking step.
+    *   **Interruption Handling**: Answers travel questions in the middle of a booking, and gently redirects back to the current booking step.
     *   **Off-Topic Filter**: Hard-refuses completely unrelated queries (e.g. general food recipes, coding, math) to keep the chat context focused on travel.
     *   **Input Validation**: Automatically rejects past travel dates and invalid email formats, returning custom verification prompts.
 
