@@ -2,7 +2,31 @@ import pytest
 from fastapi.testclient import TestClient
 from unittest.mock import patch, AsyncMock
 from app.main import app
-from app.schemas.schemas import ExtractedIntent, FlightOption, HotelOption
+from app.schemas.chat import TaskResponse
+from pydantic import BaseModel
+from typing import Optional, List
+
+class ExtractedIntent(BaseModel):
+    intent: str
+    origin: Optional[str] = None
+    destination: Optional[str] = None
+    departure_date: Optional[str] = None
+
+class FlightOption(BaseModel):
+    airline: str
+    flight_number: str
+    depart_time: str
+    arrive_time: str
+    duration: int
+    price: float
+    stops: int
+
+class HotelOption(BaseModel):
+    name: str
+    star_rating: float
+    price_per_night: float
+    amenities: List[str]
+
 import json
 import time
 import os
@@ -63,7 +87,6 @@ def mock_llm():
         
         yield helper
 
-from app.schemas.chat import TaskResponse
 
 @pytest.fixture
 def mock_serp():

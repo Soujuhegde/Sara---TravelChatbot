@@ -59,23 +59,30 @@ travel-chatbot/
 │       ├── tailwind.config.js    # Design system configurations
 │       └── package.json          # Node dependencies
 ├── src/
-│   └── app/
-│       ├── agents/
-│       │   ├── flight_agent.py   # Resolves IATA codes and requests SerpAPI flights
-│       │   └── hotel_agent.py    # Requests SerpAPI hotels with Mock fallback
-│       ├── api/
-│       │   └── routes.py         # /api/chat FastAPI endpoint and session cache loader
-│       ├── orchestrator/
-│       │   ├── graph.py          # StateGraph definitions and interruption handlers
-│       │   ├── nlu_parser.py     # Groq LLM parsing, entity extractions, date validations
-│       │   ├── flight_flow.py    # Flight sequence logic and ticket compiler
-│       │   ├── hotel_flow.py     # Hotel sequence logic and summary invoice compiler
-│       │   └── itinerary_flow.py # Luxury day-by-day planner prompt instructions
-│       ├── schemas/
-│       │   └── chat.py           # Pydantic JSON request/response models
-│       ├── utils/
-│       │   └── mock_data.py      # Fallback database listings
-│       └── main.py               # Main entrance server script
+│   ├── app/
+│   │   ├── agents/
+│   │   │   ├── flight_agent.py   # Resolves IATA codes and requests SerpAPI flights
+│   │   │   └── hotel_agent.py    # Requests SerpAPI hotels with Mock fallback
+│   │   ├── api/
+│   │   │   └── routes.py         # /api/chat FastAPI endpoint and session cache loader
+│   │   ├── db/
+│   │   │   ├── checkpointer.py   # SQLite StateGraph checkpointer config
+│   │   │   └── database.py       # Pydantic base settings DB setup
+│   │   ├── orchestrator/
+│   │   │   ├── graph.py          # StateGraph definitions and interruption handlers
+│   │   │   ├── nlu_parser.py     # Groq LLM parsing, entity extractions, date validations
+│   │   │   ├── flight_flow.py    # Flight sequence logic and ticket compiler
+│   │   │   ├── hotel_flow.py     # Hotel sequence logic and summary invoice compiler
+│   │   │   └── itinerary_flow.py # Luxury day-by-day planner prompt instructions
+│   │   ├── schemas/
+│   │   │   └── chat.py           # Pydantic JSON request/response models
+│   │   ├── services/
+│   │   │   └── email_service.py  # Dispatches transactional booking confirmations (Brevo)
+│   │   ├── utils/
+│   │   │   └── mock_data.py      # Fallback database listings
+│   │   └── main.py               # Main entrance server script
+│   └── tests/
+│       └── test_chat.py          # Integration test suite for chat flows
 ├── .env.example                  # Template configuration environment
 ├── requirements.txt              # Backend packages
 └── README.md                     # Documentation
