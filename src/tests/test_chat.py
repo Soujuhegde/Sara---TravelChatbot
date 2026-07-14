@@ -35,13 +35,20 @@ client = TestClient(app)
 
 @pytest.fixture(autouse=True)
 def clean_sessions():
-    from app.api.routes import sessions, SESSIONS_FILE
+    from app.api.routes import sessions, SESSIONS_FILE, SESSIONS_DIR
     sessions.clear()
     if os.path.exists(SESSIONS_FILE):
         try:
             os.remove(SESSIONS_FILE)
         except:
             pass
+    if os.path.exists(SESSIONS_DIR):
+        try:
+            import shutil
+            shutil.rmtree(SESSIONS_DIR)
+            os.makedirs(SESSIONS_DIR, exist_ok=True)
+        except Exception as e:
+            print(f"Error cleaning sessions directory in tests: {e}")
 
 from unittest.mock import patch, AsyncMock, MagicMock
 from app.orchestrator.nlu_parser import ExtractedInfo

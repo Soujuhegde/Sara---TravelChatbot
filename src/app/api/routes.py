@@ -9,24 +9,48 @@ import os
 router = APIRouter()
 
 SESSIONS_FILE = "sessions.pkl"
+SESSIONS_DIR = "sessions"
+os.makedirs(SESSIONS_DIR, exist_ok=True)
 sessions = {}
 
 def load_sessions():
     global sessions
+    # 1. Load legacy sessions.pkl if it exists
     if os.path.exists(SESSIONS_FILE):
         try:
             with open(SESSIONS_FILE, "rb") as f:
-                sessions = pickle.load(f)
-            print(f"Loaded {len(sessions)} active sessions from {SESSIONS_FILE}")
+                sessions.update(pickle.load(f))
+            print(f"Loaded {len(sessions)} active sessions from legacy {SESSIONS_FILE}")
         except Exception as e:
-            print(f"Error loading sessions: {e}")
-
-def save_sessions():
+            print(f"Error loading legacy sessions: {e}")
+            
+    # 2. Load individual sessions from directory
     try:
-        with open(SESSIONS_FILE, "wb") as f:
-            pickle.dump(sessions, f)
+        if os.path.exists(SESSIONS_DIR):
+            loaded_count = 0
+            for filename in os.listdir(SESSIONS_DIR):
+                if filename.endswith(".pkl"):
+                    session_id = filename[:-4]
+                    filepath = os.path.join(SESSIONS_DIR, filename)
+                    try:
+                        with open(filepath, "rb") as f:
+                            sessions[session_id] = pickle.load(f)
+                            loaded_count += 1
+                    except Exception as e:
+                        print(f"Error loading individual session {filename}: {e}")
+            print(f"Loaded {loaded_count} individual sessions from {SESSIONS_DIR}. Total in-memory: {len(sessions)}")
     except Exception as e:
-        print(f"Error saving sessions: {e}")
+        print(f"Error reading sessions directory: {e}")
+
+def save_session(session_id: str):
+    if session_id not in sessions:
+        return
+    try:
+        session_file = os.path.join(SESSIONS_DIR, f"{session_id}.pkl")
+        with open(session_file, "wb") as f:
+            pickle.dump(sessions[session_id], f)
+    except Exception as e:
+        print(f"Error saving session {session_id} to file: {e}")
 
 # Load sessions on startup / reload
 load_sessions()
@@ -56,8 +80,9 @@ async def chat_endpoint(request: ChatRequest):
     # Add new message
     state["messages"].append(HumanMessage(content=request.message))
     
-    # Run graph
-    new_state = graph.invoke(state)
+    # Run graph in threadpool to prevent blocking the async event loop
+    import anyio
+    new_state = await anyio.to_thread.run_sync(graph.invoke, state)
     
     # Send booking confirmation email asynchronously if confirmed and not already sent
     current_step = new_state.get("current_step")
@@ -102,7 +127,7 @@ async def chat_endpoint(request: ChatRequest):
     # Clear one-shot fields so they don't bleed into next response
     sessions[session_id]["followup_message"] = None
     sessions[session_id]["followup_quick_replies"] = []
-    save_sessions()
+    save_session(session_id)
     
     options_to_show = new_state.get("options_to_show") or []
     current_step = new_state.get("current_step")

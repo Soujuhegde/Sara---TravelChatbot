@@ -126,12 +126,22 @@ def handle_flight_clarification(step: str, state: Dict[str, Any]) -> Dict[str, A
         today_date = datetime.now().strftime("%A, %Y-%m-%d")
         date = state.get("flight_params", {}).get("departure_date", today_date)
         
+        # FIX F-001: Ensure price field is the actual monetary value, not the flight number
+        raw_price = selected_flight.get('price', 'N/A')
+        flight_nums = selected_flight.get('flight_numbers', '')
+        if raw_price == flight_nums or raw_price == 'N/A':
+            # Fall back to pricing list
+            pricing_list = selected_flight.get('pricing', [])
+            raw_price = pricing_list[0].get('price', 'N/A') if pricing_list else 'N/A'
+        
+        flight_class = selected_flight.get('class', selected_flight.get('flight_class', 'Economy'))
+        
         ticket = {
             "pnr": pnr,
             "airline": selected_flight.get('airline_name', selected_flight.get('airline', 'N/A')),
             "flight_numbers": selected_flight.get('flight_numbers', 'N/A'),
-            "flight_class": selected_flight.get('class', 'Economy'),
-            "price": selected_flight.get('price', 'N/A'),
+            "flight_class": flight_class,
+            "price": raw_price,
             "date": date,
             "origin": origin.upper(),
             "destination": destination.upper(),

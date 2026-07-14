@@ -124,14 +124,114 @@ Start the itinerary now with Day 1 and go all the way through Day {itinerary_day
             itinerary_llm = ChatGroq(model=settings.LLM_MODEL, temperature=0.4, max_tokens=4096)
             response = itinerary_llm.invoke([SystemMessage(content=itinerary_prompt)])
             msg = response.content
-        except Exception:
-            # Fallback to default llm
-            if llm:
-                response = llm.invoke([SystemMessage(content=itinerary_prompt)])
-                msg = response.content
-            else:
-                msg = "LLM not configured."
+        except Exception as e:
+            print(f"Itinerary LLM call failed: {e}. Falling back to default LLM.")
+            try:
+                if llm:
+                    response = llm.invoke([SystemMessage(content=itinerary_prompt)])
+                    msg = response.content
+                else:
+                    raise ValueError("Default LLM is not configured")
+            except Exception as ex:
+                print(f"Default LLM call also failed: {ex}. Using local rule-based itinerary fallback generator.")
+                msg = generate_fallback_itinerary(city, itinerary_days, check_in, hotel_name, airline_name, guests)
+                
         replies = ["Book a Flight", "Book a Hotel", "Plan an Itinerary"]
 
     return {"final_response": msg, "quick_replies": replies, "options_to_show": options}
+
+def generate_fallback_itinerary(city: str, itinerary_days: int, check_in: str, hotel_name: str, airline_name: str, guests: str) -> str:
+    from datetime import datetime, timedelta
+    
+    # Try to parse start date
+    try:
+        start_dt = datetime.strptime(check_in, "%Y-%m-%d")
+    except:
+        start_dt = datetime.now()
+        
+    lines = []
+    lines.append(f"# 🗺️ Custom Itinerary for {city.upper()}")
+    lines.append("")
+    lines.append("Here is your detailed luxury travel plan:")
+    lines.append("")
+    lines.append(f"**Trip Details:**")
+    lines.append(f"- 🌍 **Destination:** {city}")
+    lines.append(f"- 📅 **Duration:** {itinerary_days} days")
+    lines.append(f"- 🏨 **Accommodation:** {hotel_name if hotel_name else 'To be decided'}")
+    lines.append(f"- ✈️ **Flight:** {airline_name if airline_name else 'To be arranged'}")
+    lines.append(f"- 👥 **Travellers:** {guests}")
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+    
+    # Generic, engaging activities mapping for fallback cities
+    activities_by_city = {
+        "DEL": [
+            ("Historical Splendors of Old Delhi", "Breakfast at Karim's (Mutton Korma & Roti, ₹350)", "Visit Red Fort (UNESCO heritage site, fee ₹35)", "Walk through Chandni Chowk spice markets", "Rickshaw ride (₹100, 15 mins)"),
+            ("New Delhi Landmarks & Lutyens Zone", "South Indian Breakfast at Saravana Bhavan (₹200)", "Explore India Gate and War Memorial", "Visit Qutub Minar complex", "Metro ride to Rajiv Chowk (₹40, 20 mins)"),
+            ("Cultural Temples & Spiritual Walk", "Breakfast at Wenger's (Connaught Place, ₹300)", "Visit Lotus Temple", "Explore Akshardham Temple complex", "Auto-rickshaw ride (₹120, 25 mins)"),
+        ],
+        "BOM": [
+            ("Gateway to Mumbai Heritage Walk", "Breakfast at Café Mondegar (Keema Ghotala, ₹400)", "Visit Gateway of India", "Walk around Colaba Causeway", "Taxi ride (₹80, 10 mins)"),
+            ("Coastal Drives & Sunset Promenades", "Breakfast at Yazdani Bakery (Bun Maska & Chai, ₹150)", "Visit Marine Drive", "Explore Haji Ali Dargah", "Local train ride (₹15, 20 mins)"),
+            ("Artistic Passages & Ancient Caves", "Breakfast at Theobroma (Connaught Place CP or Colaba, ₹250)", "Ferry to Elephanta Caves", "Visit Jehangir Art Gallery", "Ferry ride (₹200, 1 hour)"),
+        ]
+    }
+    
+    # default activities if city is not in map
+    default_activities = [
+        ("Discovering Local Treasures & Museums", "Breakfast at a local café (Signature dish, ₹250)", "Visit the national museum and historical center", "Stroll through the city's botanical garden", "Walking walk (Free)"),
+        ("Scenic City Panoramas & Promenades", "Breakfast at a bakery (Pastry & coffee, ₹200)", "Visit the main viewpoint or observation tower", "Stroll down the coastal/river walk", "Public bus (₹30, 15 mins)"),
+        ("Spiritual Landmarks & Artisan Markets", "Breakfast at a street food market (Local specialty, ₹180)", "Visit the prominent local temple or cathedral", "Explore the cultural artisan and craft market", "Taxi (₹150, 20 mins)")
+    ]
+    
+    city_key = city.upper()
+    city_acts = activities_by_city.get(city_key, default_activities)
+    
+    for i in range(itinerary_days):
+        day_num = i + 1
+        day_date = (start_dt + timedelta(days=i)).strftime("%Y-%m-%d")
+        theme, b_fast, act1, act2, trans = city_acts[i % len(city_acts)]
+        
+        lines.append(f"### 🌟 Day {day_num}: {theme}")
+        lines.append(f"**📅 Date:** {day_date}")
+        lines.append("")
+        lines.append(f"**🌅 Morning (8:00 AM – 12:00 PM)**")
+        lines.append(f"- 🍳 **Breakfast:** {b_fast}")
+        lines.append(f"- 🗺️ [Activity 1]: {act1}")
+        lines.append(f"- 🗺️ [Activity 2]: {act2}")
+        lines.append(f"- 🚌 **Transport:** {trans}")
+        lines.append("")
+        lines.append(f"**☀️ Afternoon (12:00 PM – 6:00 PM)**")
+        lines.append(f"- 🍽️ **Lunch:** Local Restaurant (Signature Dish, ₹350)")
+        lines.append(f"- 🗺️ [Activity 3]: Shopping at Local Emporium/Market")
+        lines.append(f"- 🛍️ **Shopping/Leisure:** Buying souvenirs & local handicrafts")
+        lines.append(f"- 🚌 **Transport:** Auto-rickshaw to evening hub (₹80)")
+        lines.append("")
+        lines.append(f"**🌙 Evening (6:00 PM – 10:00 PM)**")
+        lines.append(f"- 🌆 [Evening activity]: Sunset views and street walk")
+        lines.append(f"- 🍷 **Dinner:** Fine Dining Restaurant (Local cuisine, ₹1,200)")
+        lines.append(f"- 🎵 **After Dinner:** Light & Sound Show or Night Market stroll")
+        lines.append("")
+        lines.append(f"**💡 Local Tips for Day {day_num}:**")
+        lines.append(f"- Dress modestly when visiting cultural and religious sites.")
+        lines.append(f"- Stay hydrated and drink bottled mineral water.")
+        lines.append("")
+        lines.append(f"**💰 Estimated Daily Budget:** ₹2,500 – ₹4,000 per person")
+        lines.append("")
+        lines.append("---")
+        lines.append("")
+        
+    lines.append("### 🎒 Packing Tips")
+    lines.append("- Comfortable walking shoes, sunscreen, sunglasses, and a hat.")
+    lines.append("- Modest clothing covering shoulders and knees for temple visits.")
+    lines.append("- Hand sanitizer and essential medications.")
+    lines.append("")
+    lines.append("### 📋 Essential Info")
+    lines.append("- **Visa:** Check requirements before arrival.")
+    lines.append("- **Currency:** Local currency. Credit cards accepted at major hubs, cash preferred at small stalls.")
+    lines.append("- **Emergency Numbers:** 112 (All-in-one helpline).")
+    lines.append("- **Best Apps:** Google Maps for navigation, Uber / local taxi apps for transport.")
+    
+    return "\n".join(lines)
 

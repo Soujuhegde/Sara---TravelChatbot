@@ -4,6 +4,7 @@ import re
 import httpx
 import time
 from typing import Dict, Any
+from app.utils.cache import get_cached_response, set_cached_response
 
 def call_hotel_agent(request: TaskRequest) -> TaskResponse:
     params = request.parameters
@@ -23,9 +24,20 @@ def call_hotel_agent(request: TaskRequest) -> TaskResponse:
     if api_key:
         try:
             url = "https://serpapi.com/search.json"
+            
+            # Map common IATA codes to city names for better hotel search relevance and performance
+            city = params.get("city", "")
+            if len(city) == 3 and city.isupper():
+                iata_map = {
+                    "BOM": "Mumbai", "DEL": "Delhi", "BLR": "Bangalore", "SIN": "Singapore", 
+                    "PNQ": "Pune", "GOI": "Goa", "GOX": "Goa", "COK": "Kochi", "HYD": "Hyderabad",
+                    "MAA": "Chennai", "CCU": "Kolkata", "AMD": "Ahmedabad", "JAI": "Jaipur"
+                }
+                city = iata_map.get(city, city)
+                
             req_params = {
                 "engine": "google_hotels",
-                "q": f"hotels in {params.get('city')}",
+                "q": f"hotels in {city}",
                 "check_in_date": params.get("check_in_date"),
                 "check_out_date": params.get("check_out_date"),
                 "currency": "INR",
@@ -50,13 +62,19 @@ def call_hotel_agent(request: TaskRequest) -> TaskResponse:
                 "url": url,
                 "params": {k: v for k, v in req_params.items() if k != "api_key"}
             }
-
-            response = httpx.get(url, params=req_params, timeout=15.0)
-            response.raise_for_status()
-            data = response.json()
+ 
+            cached_data = get_cached_response("google_hotels", req_params)
+            if cached_data:
+                data = cached_data
+                print(f"Retrieving hotel search results from cache for {city}")
+            else:
+                response = httpx.get(url, params=req_params, timeout=15.0)
+                response.raise_for_status()
+                data = response.json()
+                set_cached_response("google_hotels", req_params, data)
+                
             serpapi_response_data = data
-            
-            properties = data.get("properties", [])
+            properties = data.get("properties", [])[:20]
             for p in properties:
                 lowest_rate = p.get("rate_per_night", {}).get("lowest", "")
                 if not lowest_rate:

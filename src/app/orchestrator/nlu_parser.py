@@ -47,23 +47,284 @@ def is_question(text: str) -> bool:
         return True
     return False
 
+def resolve_relative_checkout(check_in_str: str, user_text: str) -> str | None:
+    if not check_in_str or not user_text:
+        return None
+    try:
+        c_in_dt = datetime.strptime(check_in_str, "%Y-%m-%d")
+        msg_clean = user_text.strip().lower()
+        if msg_clean == "tomorrow":
+            return (c_in_dt + timedelta(days=1)).strftime("%Y-%m-%d")
+        
+        match = re.search(r"\b(\d+)\s*(?:day|night|night's|days|nights)", msg_clean)
+        if match:
+            days = int(match.group(1))
+            return (c_in_dt + timedelta(days=days)).strftime("%Y-%m-%d")
+            
+        if "week" in msg_clean:
+            return (c_in_dt + timedelta(days=7)).strftime("%Y-%m-%d")
+    except Exception as e:
+        print(f"Error resolving relative checkout date: {e}")
+    return None
+
+def rule_based_fallback(text: str, step: str | None, state: Dict[str, Any]) -> ExtractedInfo:
+    text_clean = text.strip()
+    text_lower = text_clean.lower()
+    
+    # Initialize ExtractedInfo with default general_qa intent
+    res = ExtractedInfo(intent="general_qa")
+    
+    # 1. Simple Confirmation / Rejection
+    is_confirm = text_lower in ["yes", "y", "yeah", "correct", "right", "ok", "okay", "sure", "proceed", "yes please", "confirm", "proceed with this option"] or "yes" in text_lower
+    is_reject = text_lower in ["no", "n", "nope", "wrong", "wait", "decline", "cancel", "no thank you", "no thanks"] or "no" in text_lower
+    
+    # 2. City Mapping to IATA codes
+    city_to_iata = {
+        "mumbai": "BOM", "bombay": "BOM", "delhi": "DEL", "new delhi": "DEL",
+        "bangalore": "BLR", "bengaluru": "BLR", "singapore": "SIN", "pune": "PNQ",
+        "goa": "GOI", "hyderabad": "HYD", "chennai": "MAA", "madras": "MAA",
+        "kolkata": "CCU", "calcutta": "CCU", "ahmedabad": "AMD", "kochi": "COK",
+        "cochin": "COK", "jaipur": "JAI", "mangalore": "IXE", "mangaluru": "IXE",
+        "london": "LHR", "paris": "CDG", "dubai": "DXB", "new york": "JFK",
+        "los angeles": "LAX", "sydney": "SYD", "tokyo": "NRT"
+    }
+
+    # Find all cities in text in order of appearance
+    found_cities = []
+    # Check for multi-word cities first by sorting by length descending
+    for city in sorted(city_to_iata.keys(), key=len, reverse=True):
+        if city in text_lower:
+            idx = text_lower.find(city)
+            found_cities.append((idx, city))
+            
+    # Sort by index to get order of appearance
+    found_cities.sort()
+    found_cities = [c[1] for c in found_cities]
+            
+    if len(found_cities) >= 2:
+        res.origin = city_to_iata[found_cities[0]]
+        res.destination = city_to_iata[found_cities[1]]
+        res.hotel_city = city_to_iata[found_cities[1]]
+        res.intent = "book_flight"
+    elif len(found_cities) == 1:
+        res.destination = city_to_iata[found_cities[0]]
+        res.hotel_city = city_to_iata[found_cities[0]]
+
+    hotel_city_match = re.search(r"hotel\s+(?:in|at|near)\s+([a-zA-Z\s]+)", text_lower)
+    if hotel_city_match:
+        city_candidate = hotel_city_match.group(1).strip()
+        if city_candidate in city_to_iata:
+            res.hotel_city = city_to_iata[city_candidate]
+        else:
+            res.hotel_city = city_candidate.title()
+        res.intent = "book_hotel"
+
+    itin_city_match = re.search(r"(?:itinerary|itineary|plan)\s+(?:for|in|at)\s+([a-zA-Z\s]+)", text_lower)
+    if itin_city_match:
+        city_candidate = itin_city_match.group(1).strip()
+        if city_candidate in city_to_iata:
+            res.hotel_city = city_to_iata[city_candidate]
+        else:
+            res.hotel_city = city_candidate.title()
+        res.intent = "plan_itinerary"
+
+    # 3. Simple Journey Type
+    if "one way" in text_lower or "oneway" in text_lower or "single journey" in text_lower or "single ticket" in text_lower:
+        res.journey_type = "One Way"
+        res.intent = "book_flight"
+    elif "round trip" in text_lower or "roundtrip" in text_lower or "return" in text_lower or "two way" in text_lower:
+        res.journey_type = "Round Trip"
+        res.intent = "book_flight"
+        
+    # 4. Simple Intents based on keywords
+    if "flight" in text_lower or "fly" in text_lower or "ticket" in text_lower:
+        res.intent = "book_flight"
+    elif "hotel" in text_lower or "stay" in text_lower or "hostel" in text_lower or "resort" in text_lower or "room" in text_lower:
+        res.intent = "book_hotel"
+    elif "itinerary" in text_lower or "itineary" in text_lower or "plan" in text_lower:
+        res.intent = "plan_itinerary"
+        
+    # 5. Confirmation / Rejection overrides
+    if is_confirm:
+        res.intent = "confirm"
+    elif is_reject:
+        res.intent = "reject"
+        
+    # 6. Date parsing (very important for flight departure, hotel check-in/out)
+    parsed_date = None
+    
+    # Pattern A: YYYY-MM-DD
+    match_ymd = re.search(r"\b(\d{4})-(\d{2})-(\d{2})\b", text_clean)
+    if match_ymd:
+        parsed_date = match_ymd.group(0)
+    else:
+        # Pattern B: DD-MM-YYYY or DD/MM/YYYY or DD-MM-YY
+        match_dmy = re.search(r"\b(\d{1,2})[-/](\d{1,2})[-/](\d{2,4})\b", text_clean)
+        if match_dmy:
+            d, m, y = match_dmy.groups()
+            if len(y) == 2:
+                y = "20" + y
+            try:
+                parsed_date = f"{int(y):04d}-{int(m):02d}-{int(d):02d}"
+            except ValueError:
+                pass
+        else:
+            # Pattern C: Month Day (e.g. August 14 or August 14 2026 or 14 August)
+            months_map = {
+                "jan": 1, "january": 1, "feb": 2, "february": 2, "mar": 3, "march": 3,
+                "apr": 4, "april": 4, "may": 5, "jun": 6, "june": 6, "jul": 7, "july": 7,
+                "aug": 8, "august": 8, "sep": 9, "september": 9, "oct": 10, "october": 10,
+                "nov": 11, "november": 11, "dec": 12, "december": 12
+            }
+            matched_month_day = False
+            for m_name, m_val in months_map.items():
+                pattern1 = rf"\b{m_name}\b\s*(\d{{1,2}})(?:st|nd|rd|th)?(?:\s*,?\s*(\d{{4}}))?"
+                pattern2 = rf"\b(\d{{1,2}})(?:st|nd|rd|th)?\s*\b{m_name}\b(?:\s*,?\s*(\d{{4}}))?"
+                
+                match1 = re.search(pattern1, text_lower)
+                match2 = re.search(pattern2, text_lower)
+                
+                if match1:
+                    d = int(match1.group(1))
+                    y = int(match1.group(2)) if match1.group(2) else datetime.now().year
+                    parsed_date = f"{y:04d}-{m_val:02d}-{d:02d}"
+                    matched_month_day = True
+                    break
+                elif match2:
+                    d = int(match2.group(1))
+                    y = int(match2.group(2)) if match2.group(2) else datetime.now().year
+                    parsed_date = f"{y:04d}-{m_val:02d}-{d:02d}"
+                    matched_month_day = True
+                    break
+            
+            # Pattern D: relative words
+            if not matched_month_day:
+                today = datetime.now()
+                if "today" in text_lower:
+                    parsed_date = today.strftime("%Y-%m-%d")
+                elif "tomorrow" in text_lower:
+                    parsed_date = (today + timedelta(days=1)).strftime("%Y-%m-%d")
+                elif "next monday" in text_lower:
+                    days_ahead = 0 - today.weekday() + 7
+                    parsed_date = (today + timedelta(days=days_ahead)).strftime("%Y-%m-%d")
+                
+    if parsed_date:
+        if step in ["awaiting_departure_date", "invalid_departure_date"]:
+            res.departure_date = parsed_date
+            res.intent = "book_flight"
+        elif step == "hotel_awaiting_check_in":
+            res.check_in_date = parsed_date
+            res.intent = "book_hotel"
+        elif step == "hotel_awaiting_check_out":
+            res.check_out_date = parsed_date
+            res.intent = "book_hotel"
+        else:
+            res.departure_date = parsed_date
+            res.check_in_date = parsed_date
+            
+    # 7. Passenger Count parsing
+    if step == "awaiting_passenger_count" or "adult" in text_lower or "child" in text_lower or "infant" in text_lower or "passenger" in text_lower:
+        adults = 1
+        children = 0
+        infants = 0
+        
+        adult_match = re.search(r"(\d+)\s*(?:adult|pax)", text_lower)
+        child_match = re.search(r"(\d+)\s*(?:child|kid|children)", text_lower)
+        infant_match = re.search(r"(\d+)\s*infant", text_lower)
+        
+        if adult_match: adults = int(adult_match.group(1))
+        if child_match: children = int(child_match.group(1))
+        if infant_match: infants = int(infant_match.group(1))
+        
+        if not adult_match and not child_match and not infant_match:
+            single_num_match = re.match(r"^\s*(\d+)\s*$", text_lower)
+            if single_num_match:
+                adults = int(single_num_match.group(1))
+                
+        res.adults_count = adults
+        res.children_count = children
+        res.infants_count = infants
+        res.intent = "provide_passenger_count"
+        
+    # 8. Passenger details parsing
+    if step == "awaiting_passenger_details":
+        res.intent = "provide_details"
+        email_match = re.search(r"\b[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b", text_clean)
+        if email_match:
+            res.passenger_email = email_match.group(0)
+        phone_match = re.search(r"\b(?:\+?\d{1,3}[- ]?)?\d{10}\b", text_clean)
+        if phone_match:
+            res.passenger_contact = phone_match.group(0)
+        passport_match = re.search(r"\b[A-Z0-9]{6,15}\b", text_clean.upper())
+        if passport_match and not (email_match and passport_match.group(0) in email_match.group(0)):
+            res.passenger_passport = passport_match.group(0)
+            
+        parts = [p.strip() for p in text_clean.split(",")]
+        if len(parts) >= 1:
+            first_part = parts[0]
+            if not email_match or first_part.lower() not in email_match.group(0).lower():
+                if not phone_match or first_part not in phone_match.group(0):
+                    if not passport_match or first_part.upper() != passport_match.group(0):
+                        res.passenger_name = first_part
+                        
+    # 9. Option select by index
+    if step in ["flight_selecting", "hotel_selecting"]:
+        index_val = None
+        if "first" in text_lower or "1st" in text_lower:
+            index_val = 0
+        elif "second" in text_lower or "2nd" in text_lower:
+            index_val = 1
+        elif "third" in text_lower or "3rd" in text_lower:
+            index_val = 2
+        else:
+            # Match if the message is strictly a single number, e.g. "1" or "2"
+            num_match_strict = re.match(r"^\s*#?(\d{1,2})\s*$", text_lower)
+            # Or matches "option 1", "flight 2", etc.
+            num_match_context = re.search(r"\b(?:option|no|number|select|choose|flight|hotel|opt)\s*#?(\d{1,2})\b", text_lower)
+            
+            if num_match_strict:
+                val = int(num_match_strict.group(1))
+                if 1 <= val <= 10:
+                    index_val = val - 1
+            elif num_match_context:
+                val = int(num_match_context.group(1))
+                if 1 <= val <= 10:
+                    index_val = val - 1
+        if index_val is not None:
+            res.selected_option_index = index_val
+            res.intent = "select_flight" if step == "flight_selecting" else "select_hotel"
+            
+    # 10. Payment
+    if "payment done" in text_lower or "paid" in text_lower or "payment completed" in text_lower:
+        res.intent = "payment_done"
+
+    return res
+
 def parse_intent(state: Dict[str, Any]) -> Dict[str, Any]:
     if not llm:
-        return {"current_step": "general_qa", "final_response": "LLM not configured."}
+        print("Warning: LLM is not configured. Proceeding with rule-based fallback.")
     
     step = state.get("current_step")
     from langchain_core.messages import HumanMessage
     if step in ["awaiting_passenger_details", "hotel_awaiting_guest_name", "hotel_awaiting_guest_email", "hotel_awaiting_guest_phone"]:
-        recent_messages = [HumanMessage(content=state["messages"][-1].content)]
+        recent_messages = state["messages"][-2:]
     else:
         recent_messages = state["messages"][-5:]
     flight_params = state.get("flight_params") or {}
     passenger_details = state.get("passenger_details") or {}
     selected_flight = state.get("selected_flight") or {}
     
+    # FIX H-001: Snapshot original flight destination BEFORE LLM extraction modifies it
+    _original_flight_destination = flight_params.get("destination")
+    _original_flight_has_airline = bool((state.get("selected_flight") or {}).get("airline_name"))
+    
     hotel_params = state.get("hotel_params") or {}
     hotel_result = state.get("hotel_result") or {}
     selected_hotel = state.get("selected_hotel") or {}
+    
+    # FIX I-01: Snapshot original dates BEFORE LLM extraction
+    _original_check_in_date = hotel_params.get("check_in_date")
+    _original_departure_date = flight_params.get("departure_date")
     
     passenger_count = state.get("passenger_count") or {}
     passengers_details = state.get("passengers_details") or []
@@ -74,7 +335,8 @@ def parse_intent(state: Dict[str, Any]) -> Dict[str, Any]:
     msg_text_lower = user_msg_text.lower()
     
     print("\n=== DEBUG parse_intent ===")
-    print(f"User Message: {state['messages'][-1].content}")
+    safe_user_msg = state['messages'][-1].content.encode('ascii', errors='backslashreplace').decode('ascii')
+    print(f"User Message: {safe_user_msg}")
     print(f"Current Step: {state.get('current_step')}")
     print(f"flight_params: {flight_params}")
     print(f"selected_flight: {selected_flight}")
@@ -104,6 +366,7 @@ def parse_intent(state: Dict[str, Any]) -> Dict[str, Any]:
     prompt = f"""You are a helpful travel assistant. Analyze the user's latest message and extract their intent and any travel details.
     
     Current known flight params: {flight_params}
+    Current known hotel params: {hotel_params}
     Current known passenger count: {passenger_count}
     Current passenger index being filled: {current_passenger_index + 1}
     Current Date: {today_date}
@@ -127,9 +390,10 @@ def parse_intent(state: Dict[str, Any]) -> Dict[str, Any]:
     - ONLY classify as 'select_flight' or 'select_hotel' if the user explicitly wants to book, select, choose, or proceed with a specific option (e.g. 'choose the expensive one', 'book the cheapest flight', 'select option 1', 'let's go with Indigo').
     - If the user is just asking a question about the options to compare them or seek information (e.g., 'which is the expensive one in this?', 'which is the cheapest?', 'what is the Indigo flight's duration?', 'which is the highest rated hotel?'), classify the intent as 'general_qa' (not select_flight or select_hotel), so we can answer their question without proceeding to selection.
     - If the user is selecting an option, populate 'selected_option_index' with the 0-based index of the selected option, and if they specify a class like 'economy' or 'business', extract it into 'selected_class'.
-
+ 
     Rules for Date Extraction:
     - ALWAYS convert departure_date, check_in_date, and check_out_date strictly to YYYY-MM-DD format.
+    - If check_out_date is described relative to check_in_date (e.g. "for 2 nights", "in 2 days", "tomorrow" relative to check_in), calculate check_out_date by adding that duration to check_in_date.
     - If the user says "next [day]" (e.g., "next monday"), use the exact date for that day from the "Upcoming 7 days reference". Do NOT add an extra week.
     - Convert all origin and destination cities/countries/airports strictly to their most prominent 3-letter IATA airport code.
     - If a country is provided (e.g., 'India', 'France'), output its major international airport code (e.g., 'DEL' for India, 'CDG' for France).
@@ -144,43 +408,13 @@ def parse_intent(state: Dict[str, Any]) -> Dict[str, Any]:
     messages = [SystemMessage(content=prompt)] + recent_messages
     
     try:
+        if not llm:
+            raise ValueError("LLM is not configured")
         structured_llm = llm.with_structured_output(ExtractedInfo)
         result = structured_llm.invoke(messages)
     except Exception as e:
-        print(f"Structured LLM failed: {e}. Falling back to JSON prompt parsing.")
-        try:
-            fallback_prompt = f"""You are a travel assistant. We need to extract the travel intent from the user message.
-            User Message: {user_msg_text}
-            
-            Respond STRICTLY with a JSON object matching this schema:
-            {{
-                "intent": "book_flight", "book_hotel", "general_qa", "select_flight", "select_hotel", "provide_details", "payment_done", "provide_passenger_count", "confirm" or "reject",
-                "origin": string or null,
-                "destination": string or null,
-                "departure_date": string (YYYY-MM-DD) or null,
-                "passenger_name": string or null,
-                "passenger_email": string or null,
-                "passenger_contact": string or null,
-                "passenger_passport": string or null,
-                "hotel_city": string or null,
-                "check_in_date": string or null,
-                "check_out_date": string or null
-            }}
-            Do not include any other text or explanation."""
-            
-            response = llm.invoke([SystemMessage(content=fallback_prompt)])
-            import json
-            cleaned_content = response.content.strip().replace("```json", "").replace("```", "")
-            if "{" in cleaned_content and "}" in cleaned_content:
-                cleaned_content = cleaned_content[cleaned_content.find("{"):cleaned_content.rfind("}")+1]
-            data = json.loads(cleaned_content)
-            data = {k: v for k, v in data.items() if v is not None}
-            if "intent" not in data or data["intent"] not in ["book_flight", "book_hotel", "general_qa", "select_flight", "select_hotel", "provide_details", "payment_done", "provide_passenger_count", "confirm", "reject"]:
-                data["intent"] = "general_qa"
-            result = ExtractedInfo(**data)
-        except Exception as ex:
-            print(f"JSON parsing fallback also failed: {ex}. Using empty ExtractedInfo.")
-            result = ExtractedInfo(intent="general_qa")
+        print(f"Structured LLM failed: {e}. Using rule-based fallback parser.")
+        result = rule_based_fallback(user_msg_text, step, state)
     
     step = state.get("current_step", "start")
     
@@ -195,9 +429,12 @@ def parse_intent(state: Dict[str, Any]) -> Dict[str, Any]:
         "awaiting_payment", "hotel_confirm_city", "hotel_confirm_dates"
     ] or (state.get("current_step") is not None and state.get("current_step").startswith("hotel_awaiting_"))
 
-    if result.origin and (not flight_params.get("origin") or step == "awaiting_origin_dest"): 
+    # FIX H-001: Only set flight origin/destination when intent is NOT hotel booking
+    # The LLM sometimes extracts destination IATA codes from hotel messages (e.g., "hotel in Goa" → GOI)
+    _is_hotel_intent = result.intent in ("book_hotel",) or "hotel" in msg_text_lower
+    if result.origin and (not flight_params.get("origin") or step == "awaiting_origin_dest") and not _is_hotel_intent: 
         flight_params["origin"] = result.origin
-    if result.destination and (not flight_params.get("destination") or step == "awaiting_origin_dest"): 
+    if result.destination and (not flight_params.get("destination") or step == "awaiting_origin_dest") and not _is_hotel_intent: 
         flight_params["destination"] = result.destination
     if result.limit: 
         flight_params["limit"] = result.limit
@@ -216,17 +453,23 @@ def parse_intent(state: Dict[str, Any]) -> Dict[str, Any]:
         except ValueError:
             pass
 
-    if result.check_out_date and (not hotel_params.get("check_out_date") or step == "hotel_awaiting_check_out" or step.startswith("hotel_")):
+    # Programmatically resolve check_out_date if missing or relative
+    c_out_val = result.check_out_date
+    c_in_str = hotel_params.get("check_in_date") or result.check_in_date
+    if c_in_str and not c_out_val:
+        c_out_val = resolve_relative_checkout(c_in_str, user_msg_text)
+        
+    if c_out_val and (not hotel_params.get("check_out_date") or step == "hotel_awaiting_check_out" or step.startswith("hotel_")):
         try:
-            dt_out = datetime.strptime(result.check_out_date, "%Y-%m-%d")
-            c_in = hotel_params.get("check_in_date")
+            dt_out = datetime.strptime(c_out_val, "%Y-%m-%d")
+            c_in = hotel_params.get("check_in_date") or result.check_in_date
             valid = True
             if c_in:
                 dt_in = datetime.strptime(c_in, "%Y-%m-%d")
                 if dt_out <= dt_in:
                     valid = False
             if valid:
-                hotel_params["check_out_date"] = result.check_out_date
+                hotel_params["check_out_date"] = c_out_val
                 if step.startswith("hotel_") and step not in ["hotel_awaiting_check_in", "hotel_awaiting_check_out"]:
                     step = "hotel_ready_to_search"
         except ValueError:
@@ -260,7 +503,9 @@ def parse_intent(state: Dict[str, Any]) -> Dict[str, Any]:
     is_suggest_query = any(k in msg_text_lower for k in suggest_keywords)
     target_city = result.hotel_city or result.destination or (flight_params.get("destination") if is_suggest_query else None)
     
-    if is_suggest_query and target_city and not is_gathering_details and not any(w in msg_text_lower for w in ["flight", "plane", "ticket"]):
+    is_in_hotel_flow = step is not None and (step.startswith("hotel_") or (step == "awaiting_payment" and state.get("selected_hotel", {}).get("name")))
+    
+    if is_suggest_query and target_city and not is_gathering_details and not is_in_hotel_flow and not any(w in msg_text_lower for w in ["flight", "plane", "ticket"]):
         result.intent = "book_hotel"
         hotel_params["city"] = target_city
         today = datetime.now()
@@ -279,11 +524,13 @@ def parse_intent(state: Dict[str, Any]) -> Dict[str, Any]:
             hotel_params["itinerary_days"] = int(days_match.group(1))
 
         existing_city = hotel_params.get("city") or flight_params.get("destination")
-        existing_date = hotel_params.get("check_in_date") or flight_params.get("departure_date")
+        # FIX I-01: Use pre-extraction snapshots so LLM-extracted dates from this message don't count
+        existing_date = _original_check_in_date or _original_departure_date
 
         if not existing_city:
             step = "itinerary_awaiting_city"
-        elif not existing_date and (selected_flight.get("airline_name") or selected_hotel.get("name")):
+        elif not existing_date:
+            # Always ask for start date if no prior booking date exists
             step = "itinerary_awaiting_start_date"
         elif not hotel_params.get("itinerary_days"):
             step = "itinerary_awaiting_days"
@@ -428,7 +675,8 @@ def parse_intent(state: Dict[str, Any]) -> Dict[str, Any]:
                 hotel_params["city"] = city_val
                 pending_clarification = None
                 existing_date = hotel_params.get("check_in_date") or flight_params.get("departure_date")
-                if not existing_date and (selected_flight.get("airline_name") or selected_hotel.get("name")):
+                # FIX I-01: Always ask for start date if unknown
+                if not existing_date:
                     step = "itinerary_awaiting_start_date"
                 elif not hotel_params.get("itinerary_days"):
                     step = "itinerary_awaiting_days"
@@ -472,7 +720,7 @@ def parse_intent(state: Dict[str, Any]) -> Dict[str, Any]:
         if result.selected_price and not is_button_select: selected_flight["price"] = result.selected_price
         if hasattr(result, "booking_link") and result.booking_link and not is_button_select: selected_flight["booking_link"] = result.booking_link
 
-        if not is_button_select and result.selected_option_index is not None and len(options_to_show) > 1:
+        if not is_button_select and result.selected_option_index is not None and 0 <= result.selected_option_index < len(options_to_show):
             identified_opt = options_to_show[result.selected_option_index]
             options_to_show = [identified_opt]
             step = "flight_selecting"
@@ -497,7 +745,7 @@ def parse_intent(state: Dict[str, Any]) -> Dict[str, Any]:
             if pax.get("contact") and not selected_hotel.get("guest_phone"):
                 selected_hotel["guest_phone"] = pax.get("contact")
 
-            if not is_button_select_hotel and result.selected_option_index is not None and len(options_to_show) > 1:
+            if not is_button_select_hotel and result.selected_option_index is not None and 0 <= result.selected_option_index < len(options_to_show):
                 identified_opt = options_to_show[result.selected_option_index]
                 options_to_show = [identified_opt]
                 step = "hotel_selecting"
@@ -509,7 +757,13 @@ def parse_intent(state: Dict[str, Any]) -> Dict[str, Any]:
                 elif "arrival_time" not in selected_hotel: step = "hotel_awaiting_arrival_time"
                 else: step = "hotel_summary"
             
-    elif (result.intent == "provide_passenger_count" and step in ["awaiting_passenger_count", "start", "verify_passenger_count"]) or (step == "awaiting_passenger_count" and result.intent != "general_qa"):
+    elif (
+        # FIX H-001/H-003: Never fire flight passenger count logic when inside any hotel step
+        not incoming_step.startswith("hotel_") if incoming_step else True
+    ) and (
+        (result.intent == "provide_passenger_count" and step in ["awaiting_passenger_count", "start", "verify_passenger_count"])
+        or (step == "awaiting_passenger_count" and result.intent != "general_qa")
+    ):
         adults = result.adults_count or 1
         children = result.children_count or 0
         infants = result.infants_count or 0
@@ -523,10 +777,13 @@ def parse_intent(state: Dict[str, Any]) -> Dict[str, Any]:
         current_passenger_index = 0
         step = "verify_passenger_count"
             
-    elif not step.startswith("hotel_") and step != "hotel_booking_confirmed" and (
-        result.intent == "provide_details" or 
+    elif (
+        # FIX H-001/H-003: Never fire flight passenger details logic when inside any hotel step
+        not incoming_step.startswith("hotel_") if incoming_step else True
+    ) and not step.startswith("hotel_") and step != "hotel_booking_confirmed" and (
+        result.intent == "provide_details" or
         (step == "awaiting_passenger_details" and (
-            result.intent != "general_qa" or 
+            result.intent != "general_qa" or
             any([result.passenger_name, result.passenger_email, result.passenger_contact, result.passenger_passport])
         ))
     ):
@@ -587,23 +844,29 @@ def parse_intent(state: Dict[str, Any]) -> Dict[str, Any]:
                 step = "awaiting_passenger_details"
                 
     elif result.intent == "payment_done" or user_msg_text.strip().lower() == "payment done":
-        total_pax = passenger_count.get("total") or 1
-        details_complete = True
-        if not passengers_details or len(passengers_details) < total_pax:
-            details_complete = False
-        else:
-            for p in passengers_details:
-                if not p.get("name") or not p.get("email") or not p.get("contact") or not p.get("passport"):
-                    details_complete = False
-                    break
+        # If we're in a hotel payment flow, skip flight-specific passenger validation
+        is_hotel_payment = step in ["hotel_awaiting_payment", "hotel_summary", "awaiting_payment"] and selected_hotel.get("name")
         
-        if not details_complete:
-            pending_clarification = "⚠️ Validation Error:\n- Please complete the passenger details for all passengers before typing 'payment done'."
-            step = "awaiting_passenger_details"
-        elif step in ["hotel_awaiting_payment", "hotel_summary"] or (step == "awaiting_payment" and selected_hotel.get("name")):
+        if is_hotel_payment:
+            # Hotel payment: just confirm the hotel booking
             step = "hotel_booking_confirmed"
         else:
-            step = "booking_confirmed"
+            # Flight payment: validate all passenger details are complete
+            total_pax = passenger_count.get("total") or 1
+            details_complete = True
+            if not passengers_details or len(passengers_details) < total_pax:
+                details_complete = False
+            else:
+                for p in passengers_details:
+                    if not p.get("name") or not p.get("email") or not p.get("contact") or not p.get("passport"):
+                        details_complete = False
+                        break
+            
+            if not details_complete:
+                pending_clarification = "⚠️ Validation Error:\n- Please complete the passenger details for all passengers before typing 'payment done'."
+                step = "awaiting_passenger_details"
+            else:
+                step = "booking_confirmed"
     elif step == "hotel_confirm_change":
         if is_confirmation or "yes" in msg_text_lower:
             old_ticket = state.get("hotel_ticket") or {}
@@ -653,10 +916,25 @@ def parse_intent(state: Dict[str, Any]) -> Dict[str, Any]:
         elif step == "hotel_confirm_city":
             if is_confirmation or user_msg_text.strip() == "✅ Yes" or "yes" in msg_text_lower:
                 dest = flight_params.get("destination", "Pune")
-                city_map = {"BOM": "Mumbai", "DEL": "Delhi", "BLR": "Bangalore", "SIN": "Singapore", "PNQ": "Pune"}
+                # FIX H-002: Expanded city_map with all major Indian + international airports
+                city_map = {
+                    "BOM": "Mumbai", "DEL": "Delhi", "BLR": "Bangalore", "SIN": "Singapore",
+                    "PNQ": "Pune", "GOI": "Goa", "HYD": "Hyderabad", "MAA": "Chennai",
+                    "CCU": "Kolkata", "AMD": "Ahmedabad", "COK": "Kochi", "JAI": "Jaipur",
+                    "IXE": "Mangalore", "TRV": "Thiruvananthapuram", "NAG": "Nagpur",
+                    "BBI": "Bhubaneswar", "VTZ": "Visakhapatnam", "STV": "Surat",
+                    "PAT": "Patna", "GAU": "Guwahati", "IXB": "Siliguri",
+                    "LHR": "London", "CDG": "Paris", "DXB": "Dubai", "JFK": "New York",
+                    "LAX": "Los Angeles", "SYD": "Sydney", "NRT": "Tokyo",
+                    "FRA": "Frankfurt", "AMS": "Amsterdam", "ICN": "Seoul",
+                    "BKK": "Bangkok", "KUL": "Kuala Lumpur", "HKG": "Hong Kong",
+                    "DOH": "Doha", "AUH": "Abu Dhabi"
+                }
                 hotel_params["city"] = city_map.get(dest.upper(), dest)
-                
-                if flight_params.get("departure_date"):
+
+                # Check if there's a date to suggest (return date for round trip, otherwise departure date)
+                hotel_arrival_date = flight_params.get("return_date") or flight_params.get("departure_date")
+                if hotel_arrival_date:
                     step = "hotel_confirm_dates"
                 else:
                     step = "hotel_awaiting_check_in"
@@ -665,7 +943,8 @@ def parse_intent(state: Dict[str, Any]) -> Dict[str, Any]:
                 
         elif step == "hotel_confirm_dates":
             if is_confirmation or user_msg_text.strip() == "✅ Yes" or "yes" in msg_text_lower:
-                hotel_params["check_in_date"] = flight_params.get("departure_date")
+                # Use return_date for round-trip (that's when they arrive at destination)
+                hotel_params["check_in_date"] = flight_params.get("return_date") or flight_params.get("departure_date")
                 step = "hotel_awaiting_check_out"
             else:
                 step = "hotel_awaiting_check_in"
@@ -685,10 +964,16 @@ def parse_intent(state: Dict[str, Any]) -> Dict[str, Any]:
                 pending_clarification = "⚠️ Validation Error:\n- Please enter a valid date in YYYY-MM-DD format."
             
         elif step == "hotel_awaiting_check_out":
+            c_in_str = hotel_params.get("check_in_date")
             c_out = result.check_out_date or user_msg_text.strip()
+            if c_in_str and not result.check_out_date:
+                resolved = resolve_relative_checkout(c_in_str, user_msg_text)
+                if resolved:
+                    c_out = resolved
+                    
             valid = True
             try:
-                dt_in = datetime.strptime(hotel_params.get("check_in_date"), "%Y-%m-%d")
+                dt_in = datetime.strptime(c_in_str, "%Y-%m-%d")
                 dt_out = datetime.strptime(c_out, "%Y-%m-%d")
                 if dt_out <= dt_in:
                     valid = False
@@ -783,31 +1068,59 @@ def parse_intent(state: Dict[str, Any]) -> Dict[str, Any]:
     ] or incoming_step in ["itinerary_awaiting_days", "itinerary_awaiting_city", "itinerary_awaiting_start_date"]
 
     interruption_question = None
+
+    # FIX F-002: Detect greetings mid-active-flow and route them to interruption handling
+    _GREETING_WORDS = {"hello", "hi", "hey", "howdy", "good morning", "good afternoon", "good evening", "greetings"}
+    _is_pure_greeting = msg_text_lower.strip() in _GREETING_WORDS
+
     if result.intent == "general_qa" and not is_active_flow:
         step = "general_qa"
     elif result.intent == "general_qa" and is_active_flow:
         is_providing_parameter = False
-        if step in ["awaiting_origin_dest", "hotel_awaiting_city", "itinerary_awaiting_city"] and (result.origin or result.destination or result.hotel_city):
+        is_q = is_question(user_msg_text)
+        # Use incoming_step (original step before advancement) to verify parameter provision
+        if incoming_step in ["awaiting_origin_dest", "hotel_awaiting_city", "itinerary_awaiting_city"] and (result.origin or result.destination or result.hotel_city or (user_msg_text.strip() and not is_q)):
             is_providing_parameter = True
-        elif step in ["awaiting_departure_date", "hotel_awaiting_check_in", "hotel_awaiting_check_out"] and (result.departure_date or result.check_in_date or result.check_out_date):
+        elif incoming_step in ["awaiting_departure_date", "hotel_awaiting_check_in", "hotel_awaiting_check_out"] and (result.departure_date or result.check_in_date or result.check_out_date or (user_msg_text.strip() and not is_q)):
             is_providing_parameter = True
-        elif step in ["awaiting_passenger_count"] and (result.adults_count or result.children_count or result.infants_count):
+        elif incoming_step == "awaiting_journey_type" and (result.journey_type or (user_msg_text.strip() and not is_q)):
             is_providing_parameter = True
-        elif step == "itinerary_awaiting_days":
-            if re.search(r"\b\d+\b", user_msg_text):
+        elif incoming_step in ["awaiting_passenger_count"] and (result.adults_count or result.children_count or result.infants_count or (user_msg_text.strip() and not is_q)):
+            is_providing_parameter = True
+        elif incoming_step == "itinerary_awaiting_days":
+            if re.search(r"\b\d+\b", user_msg_text) or (user_msg_text.strip() and not is_q):
                 is_providing_parameter = True
+        elif incoming_step == "awaiting_passenger_details" and (result.passenger_name or result.passenger_email or result.passenger_contact or result.passenger_passport or (user_msg_text.strip() and not is_q)):
+            is_providing_parameter = True
+        elif incoming_step in ["hotel_awaiting_guest_name", "hotel_awaiting_guest_email", "hotel_awaiting_guest_phone", "hotel_awaiting_special_requests", "hotel_awaiting_arrival_time"] and user_msg_text.strip() and not is_q:
+            is_providing_parameter = True
 
-        if is_confirmation or is_providing_parameter:
+        if _is_pure_greeting and is_active_flow:
+            # FIX F-002: Pure greetings mid-flow get a warm reply via interruption_question
+            interruption_question = user_msg_text
+        elif is_confirmation or is_providing_parameter:
             interruption_question = None
         else:
             interruption_question = user_msg_text
-        
+
     elif (result.intent == "book_hotel" or user_msg_text.strip().lower() == "book a hotel") and not is_gathering_details:
-        if flight_params.get("destination") or selected_flight.get("airline_name"):
+        # FIX H-001: Use pre-extraction snapshots to check for REAL prior flights
+        city_already_known = bool(hotel_params.get("city"))
+        has_prior_flight = bool(_original_flight_destination or _original_flight_has_airline)
+        if has_prior_flight and not city_already_known:
+            # Only show city confirmation when we have a REAL prior flight and don't yet know city
             step = "hotel_confirm_city"
+        elif has_prior_flight and city_already_known:
+            # City was provided in message — skip confirm, go straight to dates
+            hotel_arrival_date = flight_params.get("return_date") or _original_departure_date
+            if hotel_arrival_date:
+                step = "hotel_confirm_dates"
+            else:
+                step = "hotel_awaiting_check_in"
         else:
-            step = "hotel_awaiting_city"
-            
+            # No prior flight — skip directly to check-in since city is now known
+            step = "hotel_awaiting_check_in" if city_already_known else "hotel_awaiting_city"
+
     elif result.intent == "book_flight" and not is_gathering_details:
         step = get_next_flight_step(flight_params, invalid_date)
         

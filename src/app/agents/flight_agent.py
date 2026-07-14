@@ -3,6 +3,7 @@ import os
 import time
 import httpx
 from datetime import datetime
+from app.utils.cache import get_cached_response, set_cached_response
 
 def format_time(time_str: str) -> str:
     try:
@@ -135,11 +136,17 @@ def call_flight_agent(request: TaskRequest) -> TaskResponse:
                 "params": {k: v for k, v in req_params.items() if k != "api_key"}
             }
             
-            response = httpx.get(url, params=req_params, timeout=15.0)
-            response.raise_for_status()
-            data = response.json()
+            cached_data = get_cached_response("google_flights", req_params)
+            if cached_data:
+                data = cached_data
+                print(f"Retrieving flight search results from cache for {origin} -> {destination}")
+            else:
+                response = httpx.get(url, params=req_params, timeout=15.0)
+                response.raise_for_status()
+                data = response.json()
+                set_cached_response("google_flights", req_params, data)
+                
             serpapi_response_data = data
-            
             google_flights_url = data.get("search_metadata", {}).get("google_flights_url", "https://flights.google.com")
             
             best_flights = data.get("best_flights", [])

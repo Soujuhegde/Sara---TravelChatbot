@@ -4,8 +4,31 @@ const HotelTicket = ({ ticket }) => {
   if (!ticket) return null;
 
   const pricePerNight = ticket.price_per_night || "₹2,250";
-  const totalPrice = ticket.total_price || "₹2,250";
-  const nights = ticket.nights || 1;
+  
+  // Compute nights from actual dates if available, fallback to ticket.nights
+  let nights = ticket.nights || 1;
+  if (ticket.check_in_date && ticket.check_out_date) {
+    try {
+      const d1 = new Date(ticket.check_in_date);
+      const d2 = new Date(ticket.check_out_date);
+      const diff = Math.round((d2 - d1) / (1000 * 60 * 60 * 24));
+      if (diff > 0) nights = diff;
+    } catch (_) {}
+  }
+  
+  // Recompute total price on frontend from price_per_night × nights × rooms
+  let rooms = 1;
+  try { rooms = parseInt((ticket.rooms || "1").replace(/[^\d]/g, "")) || 1; } catch (_) {}
+  let totalPrice = ticket.total_price;
+  try {
+    const cleanPriceStr = pricePerNight.replace(/[^\d.]/g, "");
+    const pRaw = parseFloat(cleanPriceStr);
+    if (pRaw > 0 && nights > 0) {
+      totalPrice = `₹${(pRaw * nights * rooms).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    }
+  } catch (_) {}
+  if (!totalPrice) totalPrice = pricePerNight;
+
   const occupancy = `${ticket.guests || "01 Adult"}, ${ticket.rooms || "01 Room"}`;
 
   return (
@@ -71,17 +94,17 @@ const HotelTicket = ({ ticket }) => {
         </div>
 
         {/* Pricing Info */}
-        <div className="flex justify-between items-center py-2 px-2 border-b border-dashed border-slate-100 mb-4">
-          <div className="text-center flex-1">
-            <p className="text-lg font-black text-slate-800">{pricePerNight}</p>
-            <p className="text-[10px] text-slate-400 font-bold mt-0.5">Total rooms price</p>
+        <div className="flex justify-between items-center py-3 px-4 bg-slate-50/50 rounded-2xl border border-slate-100 mb-4">
+          <div className="text-left">
+            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Price per night</p>
+            <p className="text-lg font-black text-slate-800 mt-0.5">{pricePerNight}</p>
           </div>
           
-          <div className="text-xl font-bold text-slate-300 px-4">+</div>
+          <div className="h-8 w-px bg-slate-200"></div>
 
-          <div className="text-center flex-1">
-            <p className="text-lg font-black text-slate-800">{totalPrice}</p>
-            <p className="text-[10px] text-slate-400 font-bold mt-0.5">Total price for {nights} Night(s) stay</p>
+          <div className="text-right">
+            <p className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Total ({nights} Night{nights > 1 ? 's' : ''})</p>
+            <p className="text-xl font-black text-[#1e88e5] mt-0.5">{totalPrice}</p>
           </div>
         </div>
 

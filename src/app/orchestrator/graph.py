@@ -142,8 +142,10 @@ Ensure you follow the strict formatting and rules. Do not hallucinate fields.
                 msgs = [SystemMessage(content=qa_prompt.split("You must respond with a JSON")[0])] + state["messages"][-2:]
                 response = llm.invoke(msgs)
                 interruption_answer = response.content.strip() + "\n\n"
-            except:
-                interruption_answer = "I'm here to help you with your booking. How would you like to proceed?\n\n"
+            except Exception as ex:
+                print(f"Default LLM call also failed: {ex}. Using local rule-based travel QA fallback.")
+                city = hotel_params.get("city") or flight_params.get("destination") or ""
+                interruption_answer = fallback_travel_qa(interruption_question, city) + "\n\n"
             identified_index = None
 
     # Guard repeats: check if we have already repeated the prompt for this step
@@ -168,7 +170,8 @@ Ensure you follow the strict formatting and rules. Do not hallucinate fields.
         if "cheapest" in q or "lowest" in q or "affordable" in q or "budget" in q:
             def get_price(opt):
                 p_str = opt.get("price") or opt.get("price_per_night") or "999999"
-                digits = "".join(filter(str.isdigit, p_str))
+                p_str_no_cents = p_str.split(".")[0]
+                digits = "".join(filter(str.isdigit, p_str_no_cents))
                 return int(digits) if digits else 999999
             return [min(options, key=get_price)]
             
@@ -233,10 +236,12 @@ Guidelines:
                 response = llm.invoke(msgs)
                 msg = response.content
             except Exception as e:
-                print(f"Error calling general_qa LLM: {e}")
-                msg = "I can assist you with flights, hotels, or custom itineraries. What would you like to plan?"
+                print(f"Error calling general_qa LLM: {e}. Falling back to local travel QA.")
+                city = hotel_params.get("city") or flight_params.get("destination") or ""
+                msg = fallback_travel_qa(state["messages"][-1].content, city)
         else:
-            msg = "I can assist you with flights, hotels, or custom itineraries. What would you like to plan?"
+            city = hotel_params.get("city") or flight_params.get("destination") or ""
+            msg = fallback_travel_qa(state["messages"][-1].content, city)
         
         replies = ["Book a Flight", "Book a Hotel", "Plan an Itinerary"]
         res_data = {"final_response": msg, "quick_replies": replies, "options_to_show": []}
@@ -266,3 +271,93 @@ builder.add_edge("flight_node", END)
 builder.add_edge("hotel_node", END)
 
 graph = builder.compile()
+
+def fallback_travel_qa(query: str, city: str) -> str:
+    import re
+    q = query.lower()
+    city_clean = city.upper() if city else ""
+    
+    # Resolve common city codes
+    city_display = city
+    if city_clean == "DEL":
+        city_display = "Delhi"
+    elif city_clean == "BOM":
+        city_display = "Mumbai"
+    elif city_clean == "GOI":
+        city_display = "Goa"
+    elif city_clean == "BLR":
+        city_display = "Bangalore"
+    elif city_clean == "CDG":
+        city_display = "Paris"
+    elif city_clean == "LHR":
+        city_display = "London"
+        
+    # Standard Greetings with exact word boundaries
+    if any(re.search(rf"\b{w}\b", q) for w in ["hello", "hi", "hey", "good morning", "good afternoon", "good evening"]):
+        return f"Hello! 😊 I'm here to help you with your travel queries. Shall we continue with your booking?"
+    if any(re.search(rf"\b{w}\b", q) for w in ["thanks", "thank you", "awesome", "perfect", "ok", "okay", "sure"]):
+        return f"You're very welcome! Please let me know if you need any other travel tips or if we should proceed with your booking."
+    if "how are you" in q or "how's it going" in q:
+        return f"I'm doing great, thank you for asking! Let me know if you need any help with your trip."
+
+    # 1. Attractions/Must visit places
+    if any(re.search(rf"\b{w}\b", q) for w in ["place", "visit", "attraction", "things to do", "sightsee", "explore"]):
+        if "del" in q or "delhi" in q or (city_display and city_display.lower() == "delhi"):
+            return "Must-visit places in Delhi include the majestic Red Fort, Qutub Minar, India Gate, Lotus Temple, and the bustling streets of Chandni Chowk."
+        elif "bom" in q or "mumbai" in q or (city_display and city_display.lower() == "mumbai"):
+            return "In Mumbai, don't miss the Gateway of India, Marine Drive (Queen's Necklace), Chhatrapati Shivaji Terminus, and the lively Juhu Beach."
+        elif "goa" in q or (city_display and city_display.lower() == "goa"):
+            return "Key attractions in Goa include Baga Beach, Calangute Beach, Fort Aguada, Basilica of Bom Jesus, and Dudhsagar Falls."
+        elif "blr" in q or "bangalore" in q or (city_display and city_display.lower() == "bangalore"):
+            return "In Bangalore, visit the beautiful Bangalore Palace, Lalbagh Botanical Garden, Cubbon Park, and the Tipu Sultan's Summer Palace."
+        elif "par" in q or "cdg" in q or "paris" in q or (city_display and city_display.lower() == "paris"):
+            return "In Paris, the highlights are the iconic Eiffel Tower, Louvre Museum, Notre-Dame Cathedral, Arc de Triomphe, and a Seine River Cruise."
+        elif "lon" in q or "lhr" in q or "london" in q or (city_display and city_display.lower() == "london"):
+            return "When in London, check out the Tower of London, British Museum, London Eye, Buckingham Palace, and Big Ben."
+        else:
+            dest = city_display if city_display else "your destination"
+            return f"Some of the best things to do in {dest} include exploring the central historic landmarks, visiting local museums, and walking through cultural food markets."
+
+    # 2. Food & Dining
+    if any(re.search(rf"\b{w}\b", q) for w in ["eat", "food", "dish", "cuisine", "restaurant", "culinary", "delicacy"]):
+        if "del" in q or "delhi" in q or (city_display and city_display.lower() == "delhi"):
+            return "Delhi is famous for its street food like Chole Bhature, Golgappas, Butter Chicken, and kebabs in Old Delhi."
+        elif "bom" in q or "mumbai" in q or (city_display and city_display.lower() == "mumbai"):
+            return "Famous foods in Mumbai include Vada Pav, Pav Bhaji, Bhel Puri, and coastal seafood specialties like Bombay Duck fry."
+        elif "goa" in q or (city_display and city_display.lower() == "goa"):
+            return "In Goa, try the traditional Goan Fish Curry, Pork Vindaloo, Bebinca (dessert), and fresh butter garlic prawns at beach shacks."
+        else:
+            dest = city_display if city_display else "your destination"
+            return f"For {dest}, we recommend trying the signature local street foods, visiting top-rated traditional bistros, and sampling seasonal desserts."
+
+    # 3. Weather
+    if any(re.search(rf"\b{w}\b", q) for w in ["weather", "temperature", "rain", "snow", "climate", "season", "best time to visit"]):
+        if "goa" in q or (city_display and city_display.lower() == "goa"):
+            return "Goa has warm tropical weather year-round. The best time to visit is from November to February for pleasant weather and beach activities."
+        elif "del" in q or "delhi" in q or (city_display and city_display.lower() == "delhi"):
+            return "Delhi has extreme climates: hot summers (April-June) and chilly winters (December-January). October to March is the ideal tourist window."
+        elif "bom" in q or "mumbai" in q or (city_display and city_display.lower() == "mumbai"):
+            return "Mumbai is warm and humid year-round, with heavy monsoons from June to September. October to March is the best time to visit."
+        else:
+            dest = city_display if city_display else "your destination"
+            return f"The weather in {dest} varies by season. It is generally recommended to visit during the mild shoulder seasons for sightseeing comfort."
+
+    # 4. Visa / Passport
+    if any(re.search(rf"\b{w}\b", q) for w in ["visa", "passport", "entry permit"]):
+        return "Visa requirements vary by nationality. Most international destinations require a passport valid for at least 6 months and a tourist visa or eVisa."
+
+    # 5. Luggage / Baggage allowance
+    if any(re.search(rf"\b{w}\b", q) for w in ["luggage", "baggage", "bag", "carry on", "cabin"]):
+        return "Standard domestic flights usually allow 15kg of checked baggage and 7kg of cabin luggage. International flights typically offer 20-30kg checked allowance."
+
+    # 6. Off-topic Decline
+    travel_keywords = [
+        "flight", "hotel", "itinerary", "stay", "travel", "ticket", "book", "reserve", "destination",
+        "place", "visit", "eat", "food", "weather", "temperature", "visa", "passport", "luggage", "baggage",
+        "airline", "airport", "budget", "room", "guest", "trip", "tour", "attraction", "things to do"
+    ]
+    if not any(re.search(rf"\b{w}\b", q) for w in travel_keywords) and not any(re.search(rf"\b{w}\b", q) for w in ["hi", "hello", "thanks"]):
+        return "I'm sorry, but I can only assist with travel-related queries such as flight bookings, hotel reservations, and itinerary planning. Please ask a travel-related question."
+
+    # Generic Travel Helper Response
+    return f"I can help with flight options, hotel bookings, itineraries, and local tips for {city_display if city_display else 'your destination'}. Please let me know how you'd like to proceed!"

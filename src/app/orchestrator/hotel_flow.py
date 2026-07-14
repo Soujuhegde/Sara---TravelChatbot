@@ -9,11 +9,23 @@ from app.agents.hotel_agent import call_hotel_agent
 def get_hotel_contextual_reminder(step: str, state: Dict[str, Any]) -> str | None:
     flight_params = state.get("flight_params") or {}
     selected_hotel = state.get("selected_hotel") or {}
+    # FIX H-002: Expanded city_map for all major airports
+    _CITY_MAP = {
+        "BOM": "Mumbai", "DEL": "Delhi", "BLR": "Bangalore", "SIN": "Singapore",
+        "PNQ": "Pune", "GOI": "Goa", "HYD": "Hyderabad", "MAA": "Chennai",
+        "CCU": "Kolkata", "AMD": "Ahmedabad", "COK": "Kochi", "JAI": "Jaipur",
+        "IXE": "Mangalore", "TRV": "Thiruvananthapuram", "NAG": "Nagpur",
+        "BBI": "Bhubaneswar", "VTZ": "Visakhapatnam", "GAU": "Guwahati",
+        "LHR": "London", "CDG": "Paris", "DXB": "Dubai", "JFK": "New York",
+        "LAX": "Los Angeles", "SYD": "Sydney", "NRT": "Tokyo",
+        "FRA": "Frankfurt", "AMS": "Amsterdam", "ICN": "Seoul",
+        "BKK": "Bangkok", "KUL": "Kuala Lumpur", "HKG": "Hong Kong",
+        "DOH": "Doha", "AUH": "Abu Dhabi"
+    }
 
     if step == "hotel_confirm_city":
         dest = flight_params.get("destination", "your destination")
-        city_map = {"BOM": "Mumbai", "DEL": "Delhi", "BLR": "Bangalore", "SIN": "Singapore", "PNQ": "Pune"}
-        dest_name = city_map.get(dest.upper(), dest)
+        dest_name = _CITY_MAP.get(dest.upper(), dest)
         return f"Shall we search for hotels in {dest_name}?"
     elif step == "hotel_confirm_dates":
         check_in = flight_params.get("departure_date", "flight date")
@@ -66,14 +78,28 @@ def handle_hotel_clarification(step: str, state: Dict[str, Any]) -> Dict[str, An
     hotel_params = state.get("hotel_params") or {}
     selected_hotel = state.get("selected_hotel") or {}
 
+    # FIX H-002: Expanded city_map reused here
+    _CITY_MAP = {
+        "BOM": "Mumbai", "DEL": "Delhi", "BLR": "Bangalore", "SIN": "Singapore",
+        "PNQ": "Pune", "GOI": "Goa", "HYD": "Hyderabad", "MAA": "Chennai",
+        "CCU": "Kolkata", "AMD": "Ahmedabad", "COK": "Kochi", "JAI": "Jaipur",
+        "IXE": "Mangalore", "TRV": "Thiruvananthapuram", "NAG": "Nagpur",
+        "BBI": "Bhubaneswar", "VTZ": "Visakhapatnam", "GAU": "Guwahati",
+        "LHR": "London", "CDG": "Paris", "DXB": "Dubai", "JFK": "New York",
+        "LAX": "Los Angeles", "SYD": "Sydney", "NRT": "Tokyo",
+        "FRA": "Frankfurt", "AMS": "Amsterdam", "ICN": "Seoul",
+        "BKK": "Bangkok", "KUL": "Kuala Lumpur", "HKG": "Hong Kong",
+        "DOH": "Doha", "AUH": "Abu Dhabi"
+    }
+
     if step == "hotel_confirm_city":
         dest = flight_params.get("destination", "Pune")
-        city_map = {"BOM": "Mumbai", "DEL": "Delhi", "BLR": "Bangalore", "SIN": "Singapore", "PNQ": "Pune"}
-        dest_name = city_map.get(dest.upper(), dest)
+        dest_name = _CITY_MAP.get(dest.upper(), dest)
         msg = f"I see you've booked a flight to {dest_name}. Are you planning to book a hotel in {dest_name}?"
         replies = ["✅ Yes", "❌ No, different city"]
     elif step == "hotel_confirm_dates":
-        check_in = flight_params.get("departure_date", datetime.now().strftime("%Y-%m-%d"))
+        # For round-trip flights, arrival is the return date; for one-way, use departure_date
+        check_in = flight_params.get("return_date") or flight_params.get("departure_date", datetime.now().strftime("%Y-%m-%d"))
         msg = f"Your flight arrival is on {check_in}. Would you like to check in on the same day ({check_in})?"
         replies = ["✅ Yes", "✏️ Edit Dates"]
     elif step == "hotel_awaiting_city":
@@ -87,7 +113,17 @@ def handle_hotel_clarification(step: str, state: Dict[str, Any]) -> Dict[str, An
         clarification = state.get("pending_clarification")
         prefix = f"{clarification}\n\n" if clarification else ""
         msg = f"{prefix}And when is your check-out date? (Format: YYYY-MM-DD)"
-        replies = ["Tomorrow", "In 2 days", "In 3 days"]
+        # Generate dynamic quick replies relative to check-in date (not today)
+        c_in_str = hotel_params.get("check_in_date")
+        try:
+            from datetime import timedelta
+            c_in_dt = datetime.strptime(c_in_str, "%Y-%m-%d")
+            d1 = (c_in_dt + timedelta(days=1)).strftime("%Y-%m-%d")
+            d2 = (c_in_dt + timedelta(days=2)).strftime("%Y-%m-%d")
+            d3 = (c_in_dt + timedelta(days=3)).strftime("%Y-%m-%d")
+            replies = [d1, d2, d3]
+        except:
+            replies = ["Tomorrow", "In 2 days", "In 3 days"]
     elif step == "hotel_awaiting_guests":
         msg = "How many guests will be staying?"
         replies = ["👤 1 Adult", "👥 2 Adults", "👨👩👧 Family", "➕ Custom"]
@@ -152,7 +188,8 @@ def handle_hotel_clarification(step: str, state: Dict[str, Any]) -> Dict[str, An
             rooms_clean = 1
 
         try:
-            p_clean = int("".join(filter(str.isdigit, price_str)))
+            price_str_no_cents = price_str.split(".")[0]
+            p_clean = int("".join(filter(str.isdigit, price_str_no_cents)))
             total_p = p_clean * nights * rooms_clean
             total_price = f"₹{total_p:,}.00"
         except:
@@ -178,7 +215,8 @@ def handle_hotel_clarification(step: str, state: Dict[str, Any]) -> Dict[str, An
         pnr = "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
         price_str = selected_hotel.get("price", selected_hotel.get("price_per_night", "₹2,250"))
         try:
-            p_clean = int("".join(filter(str.isdigit, price_str)))
+            price_str_no_cents = price_str.split(".")[0]
+            p_clean = int("".join(filter(str.isdigit, price_str_no_cents)))
             try:
                 d1 = datetime.strptime(hotel_params.get("check_in_date"), "%Y-%m-%d")
                 d2 = datetime.strptime(hotel_params.get("check_out_date"), "%Y-%m-%d")
